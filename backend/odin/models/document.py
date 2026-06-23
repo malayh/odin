@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, func
+from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from odin.db import Base
@@ -15,6 +15,14 @@ class Document(Base):
     __table_args__ = (
         Index("ix_documents_content_hash", "content_hash"),
         Index("ix_documents_scope_state", "scope_type", "scope_id", "state"),
+        Index(
+            "ix_documents_active_key",
+            "scope_type",
+            "scope_id",
+            "key",
+            unique=True,
+            postgresql_where=text("supersedes_id IS NULL"),
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -24,10 +32,11 @@ class Document(Base):
     doc_type: Mapped[DocType] = mapped_column(
         Enum(DocType, name="doc_type"), default=DocType.source
     )
+    key: Mapped[str] = mapped_column(String)
     content_hash: Mapped[str] = mapped_column(String)
     blob_uri: Mapped[str | None] = mapped_column(String)
     version: Mapped[int] = mapped_column(Integer, default=1)
-    supersedes_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("documents.id"))
+    supersedes_id: Mapped[uuid.UUID | None] = mapped_column()
     state: Mapped[DocState] = mapped_column(
         Enum(DocState, name="doc_state"), default=DocState.pending
     )

@@ -24,3 +24,10 @@ class DocState(enum.Enum):
     indexed = "indexed"
     failed = "failed"
     soft_deleted = "soft_deleted"
+
+
+class JobState(enum.Enum):
+    pending = "pending"
+    running = "running"
+    done = "done"
+    failed = "failed"

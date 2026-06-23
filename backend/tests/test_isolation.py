@@ -17,6 +17,7 @@ async def _doc(session, owner_id, scope_type, scope_id):
         owner_user_id=owner_id,
         scope_type=scope_type,
         scope_id=scope_id,
+        key="iso.md",
         content_hash=uuid.uuid4().hex,
     )
     session.add(doc)

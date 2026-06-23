@@ -29,3 +29,10 @@ select = ["E", "F", "I", "UP", "B"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+
+[tool.mypy]
+python_version = "3.12"
+
+[[tool.mypy.overrides]]
+module = ["boto3.*", "botocore.*", "tiktoken.*", "bs4.*"]
+ignore_missing_imports = true

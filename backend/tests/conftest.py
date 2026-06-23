@@ -11,8 +11,11 @@ from httpx import ASGITransport, AsyncClient
 from odin.config import get_settings
 from odin.db import get_session
 from odin.main import create_app
-from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
+
+_WORKER_TABLES = "jobs, chunks, documents, memberships, access_tokens, orgs, users"
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -135,3 +138,20 @@ async def admin(db_session: AsyncSession):
     from odin.seed import seed_admin
 
     return await seed_admin(db_session, "admin@example.com")
+
+
+@pytest_asyncio.fixture
+async def worker_db(engine, monkeypatch):
+    import odin.db
+    import odin.worker.handlers
+    import odin.worker.queue
+
+    sm = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
+    monkeypatch.setattr(odin.db, "SessionLocal", sm)
+    monkeypatch.setattr(odin.worker.queue, "SessionLocal", sm)
+    monkeypatch.setattr(odin.worker.handlers, "SessionLocal", sm)
+    try:
+        yield sm
+    finally:
+        async with engine.begin() as conn:
+            await conn.execute(text(f"TRUNCATE {_WORKER_TABLES} CASCADE"))

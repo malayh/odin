@@ -76,3 +76,9 @@ def can_write(scope_set: ScopeSet, scope: Scope) -> bool:
     if scope.type is ScopeType.personal:
         return scope.id == scope_set.user_id
     return scope_set.roles.get(scope.id) in (Role.admin, Role.editor)
+
+
+def can_read(scope_set: ScopeSet, scope: Scope) -> bool:
+    if scope.type is ScopeType.personal:
+        return scope.id == scope_set.user_id
+    return scope.id in scope_set.org_ids

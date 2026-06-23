@@ -3,6 +3,13 @@
 from collections.abc import Awaitable, Callable
 from typing import Any
 
+from sqlalchemy import delete
+
+from odin.db import SessionLocal
+from odin.errors import NotFoundError
+from odin.models import Chunk, Document
+from odin.services import blobs, chunking, converters
+
 Handler = Callable[[dict[str, Any]], Awaitable[None]]
 
 HANDLERS: dict[str, Handler] = {}
@@ -14,3 +21,28 @@ def register(job_type: str) -> Callable[[Handler], Handler]:
         return fn
 
     return deco
+
+
+@register("ingest")
+async def ingest_handler(job: dict[str, Any]) -> None:
+    document_id = job["document_id"]
+    async with SessionLocal() as session:
+        doc = await session.get(Document, document_id)
+        if doc is None or doc.blob_uri is None:
+            raise NotFoundError(f"document not ingestable: {document_id}")
+        data = await blobs.get(doc.blob_uri)
+        text = converters.convert(data, doc.key)
+        chunks = chunking.chunk(text)
+        await session.execute(delete(Chunk).where(Chunk.document_id == document_id))
+        for c in chunks:
+            session.add(
+                Chunk(
+                    document_id=document_id,
+                    ordinal=c.ordinal,
+                    text=c.text,
+                    section_meta=c.section_meta,
+                    char_start=c.char_start,
+                    char_end=c.char_end,
+                )
+            )
+        await session.commit()

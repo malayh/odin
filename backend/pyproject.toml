@@ -17,6 +17,8 @@ dependencies = [
     "openai>=1.40",           # embeddings (text-embedding-3-small); swappable
     "httpx>=0.27",
     "python-multipart>=0.0.9",  # file uploads
+    "tiktoken>=0.7",          # token-bounded chunking
+    "beautifulsoup4>=4.12",   # HTML -> text conversion
 ]
 # Reranker vendor is intentionally undecided (see spec §14) — added later.
 

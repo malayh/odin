@@ -5,11 +5,11 @@ import asyncpg
 import pytest
 from alembic import command
 from alembic.config import Config
-from odin.models import Membership, Org, Role, User
+from odin.models import DocState, Document, Membership, Org, Role, ScopeType, User
 from sqlalchemy.exc import IntegrityError
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
-TABLES = {"users", "orgs", "memberships", "access_tokens", "documents"}
+TABLES = {"users", "orgs", "memberships", "access_tokens", "documents", "chunks", "jobs"}
 
 
 def _cfg(url: str) -> Config:
@@ -47,5 +47,28 @@ async def test_membership_unique_constraint(db_session):
     await db_session.flush()
 
     db_session.add(Membership(user_id=user.id, org_id=org.id, role=Role.editor))
+    with pytest.raises(IntegrityError):
+        await db_session.flush()
+
+
+async def test_active_key_is_unique_per_scope(db_session):
+    user = User(email="key@example.com")
+    db_session.add(user)
+    await db_session.flush()
+
+    def _doc(content_hash: str, version: int) -> Document:
+        return Document(
+            owner_user_id=user.id,
+            scope_type=ScopeType.personal,
+            scope_id=user.id,
+            key="dup.md",
+            content_hash=content_hash,
+            version=version,
+            state=DocState.pending,
+        )
+
+    db_session.add(_doc("a", 1))
+    await db_session.flush()
+    db_session.add(_doc("b", 2))
     with pytest.raises(IntegrityError):
         await db_session.flush()

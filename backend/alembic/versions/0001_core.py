@@ -88,10 +88,11 @@ def upgrade() -> None:
         sa.Column("scope_type", scope_type, nullable=False),
         sa.Column("scope_id", sa.Uuid(), nullable=False),
         sa.Column("doc_type", doc_type, nullable=False),
+        sa.Column("key", sa.String(), nullable=False),
         sa.Column("content_hash", sa.String(), nullable=False),
         sa.Column("blob_uri", sa.String(), nullable=True),
         sa.Column("version", sa.Integer(), nullable=False),
-        sa.Column("supersedes_id", sa.Uuid(), sa.ForeignKey("documents.id"), nullable=True),
+        sa.Column("supersedes_id", sa.Uuid(), nullable=True),
         sa.Column("state", doc_state, nullable=False),
         sa.Column(
             "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
@@ -99,6 +100,13 @@ def upgrade() -> None:
     )
     op.create_index("ix_documents_content_hash", "documents", ["content_hash"])
     op.create_index("ix_documents_scope_state", "documents", ["scope_type", "scope_id", "state"])
+    op.create_index(
+        "ix_documents_active_key",
+        "documents",
+        ["scope_type", "scope_id", "key"],
+        unique=True,
+        postgresql_where=sa.text("supersedes_id IS NULL"),
+    )
 
 
 def downgrade() -> None:
