@@ -8,7 +8,7 @@ services:
       POSTGRES_PASSWORD: odin
       POSTGRES_DB: odin
     ports:
-      - "5432:5432"
+      - "25000:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
@@ -27,12 +27,9 @@ services:
       - MINIO_ROOT_PASSWORD=supersecret
     volumes:
       - minio_data:/data
-    networks:
-      - localsetup
-      - default
     ports:
-      - 9000:9000
-      - 9001:9001
+      - 25001:9000
+      - 25002:9001
 
 volumes:
   pgdata:

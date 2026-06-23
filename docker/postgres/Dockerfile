@@ -7,7 +7,7 @@ ARG AGE_VERSION=v1.5.0-rc0
 USER root
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
-        build-essential git postgresql-server-dev-16 \
+        ca-certificates build-essential git postgresql-server-dev-16 \
         flex bison libreadline-dev zlib1g-dev \
     && rm -rf /var/lib/apt/lists/*
 

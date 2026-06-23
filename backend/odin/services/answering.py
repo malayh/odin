@@ -1,1 +1,1 @@
-"""RAG ask: retrieve -> rerank -> assemble scope-filtered context -> Claude -> cited answer (admit ignorance)."""
+"""RAG ask: retrieve, rerank, assemble scope-filtered context, generate a cited answer."""

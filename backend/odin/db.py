@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from sqlalchemy.orm import DeclarativeBase
 
 from odin.config import get_settings
+from odin.graphdb import register_age
 
 
 class Base(DeclarativeBase):
@@ -14,6 +15,7 @@ class Base(DeclarativeBase):
 
 _settings = get_settings()
 engine = create_async_engine(_settings.database_url, pool_pre_ping=True)
+register_age(engine.sync_engine)
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
 
 

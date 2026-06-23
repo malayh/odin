@@ -7,7 +7,9 @@ an **API-first** server with a thin CLI client.
 - **Design:** see [`spec.md`](./spec.md).
 - **Implementation plan (layer by layer):** see [`implementation.md`](./implementation.md).
 
-> Status: **scaffold only.** Modules are stubs; no business logic yet.
+> Status: **Layer 0 (substrate) implemented** — config, logging/errors, async DB + AGE
+> access, migrations, tokens/auth, tenancy, the auth/admin API, the seed, and an idle worker
+> runtime are in place and tested. Ingestion/search/graph/ask/insight layers are still stubs.
 
 ## Repo layout
 
@@ -24,8 +26,8 @@ odin/
 │       ├── main.py          # FastAPI app factory (thin)
 │       ├── config.py        # settings (env / .env)
 │       ├── db.py            # async SQLAlchemy engine + session
-│       ├── models.py        # ORM models (one file for now)
-│       ├── schemas.py       # pydantic API schemas (req/resp share one model)
+│       ├── models/          # ORM models (one file per resource)
+│       ├── schemas/         # pydantic API schemas (one file per resource)
 │       ├── security.py, tenancy.py, errors.py, logging.py
 │       ├── api/             # thin routers — delegate to services
 │       ├── services/        # ALL business logic lives here

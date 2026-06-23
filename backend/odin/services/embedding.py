@@ -1,1 +1,1 @@
-"""Embedding provider calls + embedding-model registry (model-agnostic; swappable; re-embedding is additive)."""
+"""Embedding provider calls + a swappable embedding-model registry."""

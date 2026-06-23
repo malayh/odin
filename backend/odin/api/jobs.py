@@ -1,4 +1,4 @@
-"""Job status routes: GET /v1/jobs/{id}."""
+"""Job status routes: GET /jobs/{id}."""
 
 from fastapi import APIRouter
 

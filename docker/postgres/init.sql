@@ -11,5 +11,5 @@ BEGIN
     END IF;
 END $$;
 
--- Make ag_catalog available by default for app sessions.
-ALTER DATABASE odin SET search_path = ag_catalog, "$user", public;
+-- App tables live in public; ag_catalog stays in the path so AGE's agtype resolves.
+ALTER DATABASE odin SET search_path = public, ag_catalog;

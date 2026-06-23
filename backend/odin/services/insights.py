@@ -1,1 +1,1 @@
-"""Derived knowledge: synthesize insight documents + reasoning subgraph; tiered + confirmable trust."""
+"""Derived knowledge: synthesize insight docs + reasoning subgraph with tiered trust."""
