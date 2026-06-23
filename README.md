@@ -5,7 +5,7 @@ store, derive a provenance-rich knowledge graph, and answer questions over it �
 an **API-first** server with a thin CLI client.
 
 - **Design:** see [`spec.md`](./spec.md).
-- **Implementation plan (layer by layer):** see `implementation.md` *(to be written next)*.
+- **Implementation plan (layer by layer):** see [`implementation.md`](./implementation.md).
 
 > Status: **scaffold only.** Modules are stubs; no business logic yet.
 
@@ -50,27 +50,31 @@ odin/
 
 ## Dev setup
 
+Common tasks are wrapped in a [`justfile`](./justfile) (`just --list` to see them all):
+
 ```bash
-# 1. Start infra (Postgres + MinIO + bucket)
-docker compose up -d
-
-# 2. Install the workspace (creates .venv with backend + cli, editable)
-uv sync
-
-# 3. Configure
-cp .env.example .env   # fill in ANTHROPIC_API_KEY / OPENAI_API_KEY
-
-# 4. Migrations
-cd backend && uv run alembic upgrade head && cd ..
-
-# 5. Run the API server
-uv run uvicorn odin.main:app --reload     # http://localhost:8000  (/health, /docs)
-
-# 6. Run the worker (separate terminal)
-uv run python -m odin.worker
-
-# 7. Use the CLI
-uv run odin --help
+cp .env.example .env       # fill in ANTHROPIC_API_KEY / OPENAI_API_KEY
+just bootstrap             # infra up + uv sync + migrate
+just serve                 # API server  → http://localhost:8000  (/health, /docs)
+just worker                # ingestion worker (separate terminal)
+just odin --help           # the CLI
 ```
+
+Useful recipes: `just up` / `just down` (infra), `just migration "msg"` +
+`just migrate` (Alembic), `just test`, `just check` (lint + types + tests).
+
+<details><summary>…or the raw commands without <code>just</code></summary>
+
+```bash
+docker compose up -d                                   # 1. infra (Postgres + MinIO)
+uv sync                                                # 2. workspace venv (backend + cli)
+cp .env.example .env                                   # 3. config
+cd backend && uv run alembic upgrade head && cd ..     # 4. migrations
+uv run uvicorn odin.main:app --reload                  # 5. API server
+uv run python -m odin.worker                           # 6. worker (separate terminal)
+uv run odin --help                                     # 7. CLI
+```
+
+</details>
 
 Deployment (k8s/HA) is intentionally out of scope for now.
