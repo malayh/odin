@@ -1,0 +1,5 @@
+"""Ask a grounded, cited question."""
+
+import typer
+
+app = typer.Typer(no_args_is_help=True, help="Ask Odin a question.")
