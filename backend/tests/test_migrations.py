@@ -18,6 +18,7 @@ TABLES = {
     "chunks",
     "jobs",
     "embeddings",
+    "graph_mutations",
 }
 
 

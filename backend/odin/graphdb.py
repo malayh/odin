@@ -45,8 +45,9 @@ async def cypher(
     if not _GRAPH_RE.match(graph):
         raise ValueError(f"unsafe graph name: {graph!r}")
     coldefs = ", ".join(f"{c} agtype" for c in columns)
+    escaped = query.replace(":", r"\:")
     sql = text(
-        f"SELECT * FROM ag_catalog.cypher('{graph}', $cy${query}$cy$, "
+        f"SELECT * FROM ag_catalog.cypher('{graph}', $cy${escaped}$cy$, "
         f"CAST(:age_args AS agtype)) AS ({coldefs})"
     )
     result = await session.execute(sql, {"age_args": json.dumps(params or {})})

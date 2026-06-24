@@ -2,7 +2,8 @@ import asyncio
 import uuid
 
 from odin.models import Chunk, DocState, Document, Job, JobState, ScopeType, User
-from odin.services import blobs, embedding
+from odin.services import blobs, embedding, llm
+from odin.services.extraction import Extracted
 from odin.worker import queue
 from odin.worker.handlers import HANDLERS
 from odin.worker.runner import _run
@@ -13,6 +14,12 @@ SRC = b"# Title\n\nHello world, this is a body.\n\n## Section\n\nMore text lives
 
 async def _fake_embed_texts(texts: list[str]) -> list[list[float]]:
     return [[1.0] + [0.0] * 1535 for _ in texts]
+
+
+async def _fake_llm(prompt, schema, system=None):
+    if schema.__name__ == "Extracted":
+        return Extracted()
+    return schema(same=False)
 
 
 async def _seed(sm) -> dict:
@@ -63,6 +70,7 @@ async def test_happy_path_chunks_and_completes(worker_db, monkeypatch):
 
     monkeypatch.setattr(blobs, "get", fake_get)
     monkeypatch.setattr(embedding, "embed_texts", _fake_embed_texts)
+    monkeypatch.setattr(llm, "complete_json", _fake_llm)
     job = await _seed(worker_db)
     await _run_one(job)
 
@@ -80,6 +88,7 @@ async def test_retry_is_idempotent(worker_db, monkeypatch):
 
     monkeypatch.setattr(blobs, "get", fake_get)
     monkeypatch.setattr(embedding, "embed_texts", _fake_embed_texts)
+    monkeypatch.setattr(llm, "complete_json", _fake_llm)
     job = await _seed(worker_db)
     await _run_one(dict(job))
     n1 = await _count_chunks(worker_db, job["document_id"])

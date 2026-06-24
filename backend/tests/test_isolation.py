@@ -81,3 +81,43 @@ async def test_vector_search_excludes_other_users(db_session, monkeypatch):
 
     assert my_chunk.id in ids
     assert their_chunk.id not in ids
+
+
+async def test_graph_traversal_excludes_other_users(worker_db):
+    from types import SimpleNamespace
+
+    from odin.models import ScopeType
+    from odin.services import graph
+    from odin.tenancy import ScopeSet
+
+    a = uuid.uuid4()
+    b = uuid.uuid4()
+
+    def _doc(scope_id):
+        return SimpleNamespace(id=uuid.uuid4(), scope_type=ScopeType.personal, scope_id=scope_id)
+
+    def _ent(name, type_):
+        return SimpleNamespace(name=name, type=type_, confidence=0.9)
+
+    def _ex(other_name, other_type):
+        return SimpleNamespace(
+            entities=[_ent("Shared", "Org"), _ent(other_name, other_type)],
+            relations=[
+                SimpleNamespace(
+                    subject="Shared", predicate="builds", object=other_name, confidence=0.9
+                )
+            ],
+        )
+
+    async with worker_db() as s:
+        await graph.upsert(s, _doc(a), _ex("Anvil", "Product"), {}, "m")
+        await graph.upsert(s, _doc(b), _ex("Secret", "Project"), {}, "m")
+        await s.commit()
+
+    async with worker_db() as s:
+        view_a = await graph.read_entity(s, ScopeSet(user_id=a, roles={}), "org:shared")
+
+    objects = {r["object_key"] for r in view_a["relationships"]}
+    assert "product:anvil" in objects
+    assert "project:secret" not in objects
+    assert "Shared" in view_a["aliases"]

@@ -2,7 +2,8 @@ import asyncio
 import uuid
 
 from odin.models import Chunk, DocState, Document, Embedding, Job, JobState, ScopeType, User
-from odin.services import blobs, embedding
+from odin.services import blobs, embedding, llm
+from odin.services.extraction import Extracted
 from odin.worker import queue
 from odin.worker.handlers import HANDLERS
 from odin.worker.runner import _run
@@ -13,6 +14,12 @@ SRC = b"# Title\n\n" + b"word " * 300
 
 async def _fake_embed_texts(texts: list[str]) -> list[list[float]]:
     return [[1.0] + [0.0] * 1535 for _ in texts]
+
+
+async def _fake_llm(prompt, schema, system=None):
+    if schema.__name__ == "Extracted":
+        return Extracted()
+    return schema(same=False)
 
 
 async def _seed(sm) -> dict:
@@ -70,6 +77,7 @@ async def test_pipeline_embeds_and_indexes(worker_db, monkeypatch):
 
     monkeypatch.setattr(blobs, "get", fake_get)
     monkeypatch.setattr(embedding, "embed_texts", _fake_embed_texts)
+    monkeypatch.setattr(llm, "complete_json", _fake_llm)
     job = await _seed(worker_db)
     await _run_one(job)
 
@@ -89,6 +97,7 @@ async def test_reembed_replaces_vectors_cleanly(worker_db, monkeypatch):
 
     monkeypatch.setattr(blobs, "get", fake_get)
     monkeypatch.setattr(embedding, "embed_texts", _fake_embed_texts)
+    monkeypatch.setattr(llm, "complete_json", _fake_llm)
     job = await _seed(worker_db)
     await _run_one(dict(job))
     c1, v1 = await _counts(worker_db, job["document_id"])

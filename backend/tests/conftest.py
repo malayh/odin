@@ -10,12 +10,13 @@ import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from odin.config import get_settings
 from odin.db import get_session
+from odin.graphdb import cypher
 from odin.main import create_app
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-_WORKER_TABLES = "jobs, chunks, documents, memberships, access_tokens, orgs, users"
+_WORKER_TABLES = "graph_mutations, jobs, chunks, documents, memberships, access_tokens, orgs, users"
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 
@@ -153,5 +154,8 @@ async def worker_db(engine, monkeypatch):
     try:
         yield sm
     finally:
+        async with sm() as s:
+            await cypher(s, get_settings().age_graph, "MATCH (n) DETACH DELETE n")
+            await s.commit()
         async with engine.begin() as conn:
             await conn.execute(text(f"TRUNCATE {_WORKER_TABLES} CASCADE"))

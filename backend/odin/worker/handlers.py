@@ -9,7 +9,15 @@ from odin.config import get_settings
 from odin.db import SessionLocal
 from odin.errors import NotFoundError
 from odin.models import Chunk, DocState, Document
-from odin.services import blobs, chunking, converters, embedding
+from odin.services import (
+    blobs,
+    chunking,
+    converters,
+    embedding,
+    extraction,
+    graph,
+    resolution,
+)
 
 Handler = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -54,5 +62,16 @@ async def ingest_handler(job: dict[str, Any]) -> None:
             )
         await session.flush()
         await embedding.embed_chunks(session, document_id)
+
+        scope_type = doc.scope_type.value
+        scope_id = str(doc.scope_id)
+        extracted = await extraction.extract(session, document_id)
+        merges = await resolution.resolve(
+            session, extracted, scope_type, scope_id, str(document_id)
+        )
+        await graph.delete_document_contributions(session, str(document_id))
+        await graph.upsert(session, doc, extracted, merges, settings.answer_model)
+        await graph.detect_and_link_contradictions(session, scope_type, scope_id)
+
         doc.state = DocState.indexed
         await session.commit()
