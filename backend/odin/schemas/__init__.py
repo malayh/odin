@@ -4,6 +4,7 @@ from odin.schemas.auth import ScopeOut, WhoamiOut
 from odin.schemas.ingest import IngestOut
 from odin.schemas.job import JobOut
 from odin.schemas.org import AddMemberIn, CreateOrgIn, MembershipOut, OrgOut, SetRoleIn
+from odin.schemas.search import SearchHit, SearchIn, SearchOut
 from odin.schemas.token import CreateTokenIn, TokenCreated, TokenOut
 from odin.schemas.user import CreateUserIn, UserOut
 
@@ -17,6 +18,9 @@ __all__ = [
     "MembershipOut",
     "OrgOut",
     "ScopeOut",
+    "SearchHit",
+    "SearchIn",
+    "SearchOut",
     "SetRoleIn",
     "TokenCreated",
     "TokenOut",

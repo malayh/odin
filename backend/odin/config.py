@@ -35,6 +35,11 @@ class Settings(BaseSettings):
     embedding_model: str = "text-embedding-3-small"
     embedding_dimensions: int = 1536
 
+    # --- chunking ---
+    chunk_max_tokens: int = 512
+    chunk_overlap_tokens: int = 64
+    chunk_min_tokens: int = 64
+
     # --- worker ---
     worker_poll_interval_seconds: float = 1.0
     worker_max_attempts: int = 5

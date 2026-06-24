@@ -9,6 +9,7 @@ import tiktoken
 
 MAX_TOKENS = 512
 OVERLAP_TOKENS = 64
+MIN_TOKENS = 64
 _HEADING = re.compile(r"^(#{1,6})\s+(.+?)\s*$", re.MULTILINE)
 
 
@@ -83,7 +84,10 @@ def _overlap_start(text: str, start: int, end: int, overlap_tokens: int) -> int:
 
 
 def chunk(
-    text: str, max_tokens: int = MAX_TOKENS, overlap_tokens: int = OVERLAP_TOKENS
+    text: str,
+    max_tokens: int = MAX_TOKENS,
+    overlap_tokens: int = OVERLAP_TOKENS,
+    min_tokens: int = MIN_TOKENS,
 ) -> list[Chunked]:
     headings = _headings(text)
     n = len(text)
@@ -101,4 +105,16 @@ def chunk(
         if end >= n:
             break
         pos = _overlap_start(text, pos, end, overlap_tokens)
+    if len(out) > 1 and _ntokens(out[-1].text) < min_tokens:
+        last = out.pop()
+        prev = out.pop()
+        out.append(
+            Chunked(
+                prev.ordinal,
+                text[prev.char_start : last.char_end],
+                prev.section_meta,
+                prev.char_start,
+                last.char_end,
+            )
+        )
     return out

@@ -34,5 +34,5 @@ asyncio_mode = "auto"
 python_version = "3.12"
 
 [[tool.mypy.overrides]]
-module = ["boto3.*", "botocore.*", "tiktoken.*", "bs4.*"]
+module = ["boto3.*", "botocore.*", "tiktoken.*", "bs4.*", "pgvector.*", "openai.*"]
 ignore_missing_imports = true

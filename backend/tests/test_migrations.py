@@ -9,7 +9,16 @@ from odin.models import DocState, Document, Membership, Org, Role, ScopeType, Us
 from sqlalchemy.exc import IntegrityError
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
-TABLES = {"users", "orgs", "memberships", "access_tokens", "documents", "chunks", "jobs"}
+TABLES = {
+    "users",
+    "orgs",
+    "memberships",
+    "access_tokens",
+    "documents",
+    "chunks",
+    "jobs",
+    "embeddings",
+}
 
 
 def _cfg(url: str) -> Config:

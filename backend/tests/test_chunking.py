@@ -1,4 +1,4 @@
-from odin.services.chunking import chunk
+from odin.services.chunking import _ntokens, chunk
 
 
 def test_small_doc_is_single_chunk():
@@ -47,3 +47,14 @@ def test_heading_path_captured():
 def test_no_headings_yields_empty_path():
     chunks = chunk("just some plain prose without structure")
     assert chunks[0].section_meta["headings"] == []
+
+
+def test_trailing_sliver_merges_into_previous():
+    text = "word " * 530
+    two = chunk(text, max_tokens=512, overlap_tokens=8, min_tokens=1)
+    assert len(two) == 2
+    assert _ntokens(two[-1].text) < 64
+    merged = chunk(text, max_tokens=512, overlap_tokens=8, min_tokens=64)
+    assert len(merged) == 1
+    assert merged[-1].char_end == len(text)
+    assert text[merged[-1].char_start : merged[-1].char_end] == merged[-1].text
