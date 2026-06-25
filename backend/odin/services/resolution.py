@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from odin.services import embedding, graph, llm, mutations, ontology
 from odin.services.extraction import Extracted
 
-_THRESHOLD = 0.85
+_THRESHOLD = 0.5
 
 
 class _Confirm(BaseModel):
@@ -25,9 +25,22 @@ def _cosine(a: list[float], b: list[float]) -> float:
     return dot / (na * nb)
 
 
-async def _confirm_same(name_a: str, name_b: str) -> bool:
+def _describe(name: str, type_: str, facts: list[str]) -> str:
+    line = f'"{name}" ({type_})'
+    if facts:
+        line += " — " + "; ".join(facts)
+    return line
+
+
+async def _confirm_same(
+    name_a: str, type_a: str, facts_a: list[str], name_b: str, type_b: str, facts_b: list[str]
+) -> bool:
     prompt = (
-        f'Do "{name_a}" and "{name_b}" refer to the same real-world entity? '
+        "You are canonicalizing entities in a knowledge graph. Decide whether A and B "
+        "refer to the same real-world entity, using the names, types, and the facts each "
+        "appears in.\n"
+        f"A: {_describe(name_a, type_a, facts_a)}\n"
+        f"B: {_describe(name_b, type_b, facts_b)}\n"
         'Return JSON {"same": true|false}.'
     )
     result = await llm.complete_json(prompt, _Confirm)
@@ -64,6 +77,20 @@ async def resolve(
         return {}
     vecs = await embedding.embed_texts(names)
 
+    new_facts: dict[str, list[str]] = defaultdict(list)
+    for rel in extracted.relations:
+        new_facts[rel.subject].append(f"{rel.predicate} {rel.object}")
+        new_facts[rel.object].append(f"{rel.subject} {rel.predicate}")
+    ex_facts: dict[str, list[str]] = defaultdict(list)
+    for k, pred, obj in await graph.scope_entity_facts(
+        session, scope_type, scope_id, [x[0] for x in existing]
+    ):
+        ex_facts[k].append(f"{pred} {obj}")
+
+    def _facts(idx: int) -> list[str]:
+        src = ex_facts.get(keys[idx], []) if in_graph[idx] else new_facts.get(names[idx], [])
+        return src[:3]
+
     parent = list(range(len(names)))
 
     def find(x: int) -> int:
@@ -82,7 +109,7 @@ async def resolve(
             if keys[i] == keys[j]:
                 union(i, j)
             elif _cosine(vecs[i], vecs[j]) >= threshold and await _confirm_same(
-                names[i], names[j]
+                names[i], types[i], _facts(i), names[j], types[j], _facts(j)
             ):
                 union(i, j)
 
@@ -93,11 +120,9 @@ async def resolve(
     merges: dict[str, tuple[str, str, str]] = {}
     for members in clusters.values():
         anchored = [m for m in members if in_graph[m]]
-        if anchored:
-            canon = max(anchored, key=lambda m: len(names[m]))
-        else:
-            canon = max(members, key=lambda m: (len(names[m]), ents[m].confidence))
-        ckey, cname, ctype = keys[canon], names[canon], types[canon]
+        anchor = max(anchored or members, key=lambda m: (len(names[m]), names[m]))
+        fullest = max(members, key=lambda m: (len(names[m]), names[m]))
+        ckey, ctype, cname = keys[anchor], types[anchor], names[fullest]
         for m in members:
             if in_graph[m] or keys[m] == ckey:
                 continue
@@ -121,3 +146,74 @@ async def resolve(
                 confidence=ents[m].confidence,
             )
     return merges
+
+
+async def consolidate(
+    session: AsyncSession,
+    scope_type: str,
+    scope_id: str,
+    *,
+    threshold: float = _THRESHOLD,
+) -> int:
+    entities = await graph.list_scope_entities(session, scope_type, scope_id)
+    if len(entities) < 2:
+        return 0
+    keys = [e[0] for e in entities]
+    names = [e[1] for e in entities]
+    types = [e[2] for e in entities]
+    vecs = await embedding.embed_texts(names)
+
+    facts: dict[str, list[str]] = defaultdict(list)
+    for k, pred, obj in await graph.scope_entity_facts(session, scope_type, scope_id, keys):
+        facts[k].append(f"{pred} {obj}")
+
+    parent = list(range(len(keys)))
+
+    def find(x: int) -> int:
+        while parent[x] != x:
+            parent[x] = parent[parent[x]]
+            x = parent[x]
+        return x
+
+    def union(a: int, b: int) -> None:
+        parent[find(a)] = find(b)
+
+    for i in range(len(keys)):
+        for j in range(i + 1, len(keys)):
+            if find(i) == find(j):
+                continue
+            if _cosine(vecs[i], vecs[j]) >= threshold and await _confirm_same(
+                names[i], types[i], facts.get(keys[i], [])[:3],
+                names[j], types[j], facts.get(keys[j], [])[:3],
+            ):
+                union(i, j)
+
+    clusters: dict[int, list[int]] = defaultdict(list)
+    for i in range(len(keys)):
+        clusters[find(i)].append(i)
+
+    merged = 0
+    for members in clusters.values():
+        if len(members) < 2:
+            continue
+        canon = max(members, key=lambda m: (len(names[m]), names[m], keys[m]))
+        ckey, cname, ctype = keys[canon], names[canon], types[canon]
+        for m in members:
+            if m == canon:
+                continue
+            await graph.merge_nodes(session, ckey, cname, ctype, keys[m])
+            await mutations.log(
+                session,
+                actor="resolver",
+                op="node_merge",
+                payload={
+                    "canonical_key": ckey,
+                    "absorbed_key": keys[m],
+                    "absorbed_name": names[m],
+                    "absorbed_type": types[m],
+                    "scope_type": scope_type,
+                    "scope_id": scope_id,
+                },
+            )
+            merged += 1
+    return merged

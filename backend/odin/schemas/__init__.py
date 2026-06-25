@@ -1,6 +1,7 @@
 """Pydantic API schemas (request and response models)."""
 
 from odin.schemas.auth import ScopeOut, WhoamiOut
+from odin.schemas.graph import EntityOut, EntitySummary, MutationOut, RelationshipOut
 from odin.schemas.ingest import IngestOut
 from odin.schemas.job import JobOut
 from odin.schemas.org import AddMemberIn, CreateOrgIn, MembershipOut, OrgOut, SetRoleIn
@@ -13,10 +14,14 @@ __all__ = [
     "CreateOrgIn",
     "CreateTokenIn",
     "CreateUserIn",
+    "EntityOut",
+    "EntitySummary",
     "IngestOut",
     "JobOut",
     "MembershipOut",
+    "MutationOut",
     "OrgOut",
+    "RelationshipOut",
     "ScopeOut",
     "SearchHit",
     "SearchIn",

@@ -10,7 +10,7 @@ Run from the repo ROOT, with the stack up and real provider keys set:
 
 The harness seeds an admin, logs in, creates the "Helios Robotics" org, ingests
 the personal and org corpora via `odin ingest`, then reports documents, chunks,
-entities, relationships, contradictions, aliases, sample searches, and a
+entities, relationships, aliases, sample searches, and a
 scope-isolation spot-check.
 """
 
@@ -28,6 +28,7 @@ from odin.db import SessionLocal
 from odin.graphdb import cypher
 from odin.models import Chunk, Document, Org
 from odin.seed import seed_admin
+from odin.services import resolution
 from sqlalchemy import func, select
 
 HERE = Path(__file__).resolve().parent
@@ -109,13 +110,6 @@ async def observe(org_id: str) -> None:
             "RETURN a.key, r.predicate, b.key, r.scope_type, r.confidence",
             columns=("sub", "pred", "obj", "scope", "conf"),
         )
-        contra = await cypher(
-            s,
-            GRAPH,
-            "MATCH (a:Entity)-[c:CONTRADICTS]->(b:Entity) "
-            "RETURN c.subject_key, c.predicate, a.key, b.key, c.scope_type",
-            columns=("subj", "pred", "a", "b", "scope"),
-        )
         aliases = await cypher(
             s,
             GRAPH,
@@ -136,11 +130,6 @@ async def observe(org_id: str) -> None:
     print(f"== relationships ({len(rels)}) ==")
     for sub, pred, obj, scope, conf in sorted(rels, key=lambda r: (str(r[3]), str(r[0]))):
         print(f"  [{scope}] {sub} -{pred}-> {obj}  ({conf})")
-    print()
-
-    print(f"== contradictions ({len(contra)}) ==")
-    for subj, pred, a, b, scope in contra:
-        print(f"  [{scope}] {subj}.{pred}:  {a}  <>  {b}")
     print()
 
     alias_map: dict[str, set[str]] = {}
@@ -194,6 +183,13 @@ async def main() -> None:
     report_ingest(cli("ingest", "-d", str(CORPUS / "personal"), "--scope", "personal", "--json"))
     print("== ingest: org ==")
     report_ingest(cli("ingest", "-d", str(CORPUS / "org"), "--scope", f"org:{org_id}", "--json"))
+
+    print("== consolidate ==")
+    async with SessionLocal() as s:
+        n_personal = await resolution.consolidate(s, "personal", user_id)
+        n_org = await resolution.consolidate(s, "org", org_id)
+        await s.commit()
+    print(f"  personal: {n_personal} merges, org: {n_org} merges\n")
 
     await observe(org_id)
 

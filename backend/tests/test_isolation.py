@@ -121,3 +121,45 @@ async def test_graph_traversal_excludes_other_users(worker_db):
     assert "product:anvil" in objects
     assert "project:secret" not in objects
     assert "Shared" in view_a["aliases"]
+
+
+async def test_graph_expansion_excludes_other_users(worker_db):
+    from types import SimpleNamespace
+
+    from odin.services import graph, retrieval
+    from odin.tenancy import ScopeSet
+
+    a = uuid.uuid4()
+    b = uuid.uuid4()
+
+    def _d(scope_id):
+        return SimpleNamespace(id=uuid.uuid4(), scope_type=ScopeType.personal, scope_id=scope_id)
+
+    def _ent(name, type_):
+        return SimpleNamespace(name=name, type=type_, confidence=0.9)
+
+    def _ex(other_name, other_type):
+        return SimpleNamespace(
+            entities=[_ent("Shared", "Org"), _ent(other_name, other_type)],
+            relations=[
+                SimpleNamespace(
+                    subject="Shared", predicate="builds", object=other_name, confidence=0.9
+                )
+            ],
+        )
+
+    doc_a = _d(a)
+    doc_b = _d(b)
+
+    async with worker_db() as s:
+        await graph.upsert(s, doc_a, _ex("Anvil", "Product"), {}, "m")
+        await graph.upsert(s, doc_b, _ex("Secret", "Project"), {}, "m")
+        await s.commit()
+
+    async with worker_db() as s:
+        exp = await retrieval.expand(s, ScopeSet(user_id=a, roles={}), [doc_a.id])
+
+    objects = {r.object_key for r in exp.relationships}
+    assert "product:anvil" in objects
+    assert "project:secret" not in objects
+    assert doc_b.id not in exp.linked_document_ids

@@ -16,9 +16,9 @@ It is seeded with:
 
 - **Alias variants** (entity resolution): `Helios Robotics` / `Helios` / `Helios Inc.`;
   `Northwind Capital` / `Northwind`; `Dana Okafor` / `Dana`.
-- **Contradictions** (all in org scope, so `CONTRADICTS` can link them): Dana's title
-  (CTO vs VP Engineering), Project Atlas ship date (Q2 vs Q3), Series B amount ($40M vs $45M),
-  Vertex Dynamics (competitor vs potential partner).
+- **Conflicting facts** (stored side by side with provenance — Odin does not adjudicate; they
+  surface together at query time): Dana's title (CTO vs VP Engineering), Project Atlas ship date
+  (Q2 vs Q3), Series B amount ($40M vs $45M), Vertex Dynamics (competitor vs potential partner).
 - **A personal/org scope split** to exercise retrieval isolation.
 
 ## Prerequisites
@@ -56,7 +56,7 @@ What it does:
 3. `odin ingest -d corpus/personal --scope personal` and `-d corpus/org --scope org:<id>`,
    polling each job to completion against the real worker.
 4. Observes via the datastore + AGE graph and prints a report: documents by state/scope,
-   chunk count, entities, relationships, contradictions, resolved aliases, sample searches,
+   chunk count, entities, relationships, resolved aliases, sample searches,
    and a scope-isolation spot-check.
 
 Capture the report for the design doc:

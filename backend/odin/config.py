@@ -40,6 +40,10 @@ class Settings(BaseSettings):
     chunk_overlap_tokens: int = 64
     chunk_min_tokens: int = 64
 
+    # --- graph expansion (retrieval) ---
+    expand_entities_per_doc: int = 16
+    expand_neighbors_per_entity: int = 16
+
     # --- worker ---
     worker_poll_interval_seconds: float = 1.0
     worker_max_attempts: int = 5

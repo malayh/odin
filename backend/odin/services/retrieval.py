@@ -7,8 +7,9 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from odin.config import get_settings
 from odin.models import Chunk, DocState, Document, Embedding
-from odin.services import embedding
+from odin.services import embedding, graph
 from odin.tenancy import Scope, ScopeSet, scope_filter
 
 
@@ -76,3 +77,105 @@ async def search(
         )
         for r in rows
     ]
+
+
+@dataclass(frozen=True)
+class EntityRef:
+    key: str
+    name: str
+    type: str
+
+
+@dataclass(frozen=True)
+class RelRef:
+    subject_key: str
+    predicate: str
+    object_key: str
+    source_doc_id: str | None
+
+
+@dataclass(frozen=True)
+class Fanout:
+    entities_per_doc: int
+    neighbors_per_entity: int
+
+
+@dataclass(frozen=True)
+class Expansion:
+    entities: list[EntityRef]
+    relationships: list[RelRef]
+    linked_document_ids: list[uuid.UUID]
+
+
+def _default_fanout() -> Fanout:
+    s = get_settings()
+    return Fanout(s.expand_entities_per_doc, s.expand_neighbors_per_entity)
+
+
+async def expand(
+    session: AsyncSession,
+    scope_set: ScopeSet,
+    seed_document_ids: list[uuid.UUID],
+    *,
+    fanout: Fanout | None = None,
+) -> Expansion:
+    fanout = fanout or _default_fanout()
+    seeds = [str(d) for d in seed_document_ids]
+    if not seeds:
+        return Expansion(entities=[], relationships=[], linked_document_ids=[])
+
+    entities: dict[str, EntityRef] = {}
+    per_doc: dict[str, set[str]] = {}
+    for doc_id, key, name, type_, _conf in await graph.mentioned_entities(
+        session, scope_set, seeds
+    ):
+        seen = per_doc.setdefault(doc_id, set())
+        if key not in entities and len(seen) >= fanout.entities_per_doc:
+            continue
+        seen.add(key)
+        entities.setdefault(key, EntityRef(key=key, name=name, type=type_))
+
+    relationships: list[RelRef] = []
+    per_entity: dict[str, int] = {}
+    for subj, pred, obj, src, _conf in await graph.entity_neighbors(
+        session, scope_set, list(entities)
+    ):
+        if per_entity.get(subj, 0) >= fanout.neighbors_per_entity:
+            continue
+        per_entity[subj] = per_entity.get(subj, 0) + 1
+        relationships.append(
+            RelRef(subject_key=subj, predicate=pred, object_key=obj, source_doc_id=src)
+        )
+
+    reach = list(entities) + [r.object_key for r in relationships]
+    seed_set = set(seeds)
+    linked = sorted(
+        {
+            uuid.UUID(doc_id)
+            for _key, doc_id in await graph.docs_for_entities(session, scope_set, reach)
+            if doc_id not in seed_set
+        }
+    )
+    return Expansion(
+        entities=list(entities.values()),
+        relationships=relationships,
+        linked_document_ids=linked,
+    )
+
+
+async def search_graph(
+    session: AsyncSession,
+    scope_set: ScopeSet,
+    query: str,
+    only: Scope | None = None,
+    top_k: int = 10,
+) -> tuple[list[Hit], Expansion]:
+    hits = await search(session, scope_set, query, only, top_k)
+    seeds: list[uuid.UUID] = []
+    seen: set[uuid.UUID] = set()
+    for h in hits:
+        if h.document_id not in seen:
+            seen.add(h.document_id)
+            seeds.append(h.document_id)
+    expansion = await expand(session, scope_set, seeds)
+    return hits, expansion
