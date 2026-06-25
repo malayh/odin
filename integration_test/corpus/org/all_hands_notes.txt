@@ -1,0 +1,18 @@
+HELIOS ROBOTICS — ALL HANDS (notes)
+
+Mara Vance opened the all-hands at Austin HQ.
+
+Wins:
+- Acme Logistics signed as launch customer for Project Atlas.
+- Series B from Northwind closed; runway is healthy (thanks Priya Nair).
+- Berlin office headcount up; welcome to the new Beacon engineers.
+
+Product:
+- Leo Zhang demoed Project Atlas pick-and-place. Looking sharp.
+- Project Beacon entering wider beta.
+- Dana Okafor reminded everyone Project Orion is still a research bet, not a product.
+
+Go-to-market:
+- Sam Ortiz: pipeline growing beyond Acme Logistics; Vertex Dynamics showing up in deals.
+
+Mara's close: stay focused on the Atlas launch. Helios wins if Atlas ships well.

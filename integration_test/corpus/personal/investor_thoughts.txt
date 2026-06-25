@@ -1,0 +1,9 @@
+Private — after the Northwind call
+
+Northwind closed the Series B and I trust them, but the board seat changes the room. I need to manage the relationship, not just the cap table.
+
+Open question I keep circling: did we raise enough? The press said one number and the board minutes another — I should reconcile what we actually announce as the Series B size before someone notices the gap.
+
+Northwind wants a clear Atlas launch date. So does Acme Logistics. So does Sam Ortiz. Everyone wants the date I don't yet have, because Dana and the roadmap disagree.
+
+Note to self: lock the Atlas date, then tell Northwind, then tell Acme Logistics.
