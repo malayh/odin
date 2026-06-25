@@ -19,3 +19,6 @@ venv/
 # OS / editor
 .DS_Store
 *.swp
+
+# Integration harness (writes a real token here)
+integration_test/.odin_config.yaml

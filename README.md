@@ -7,9 +7,12 @@ an **API-first** server with a thin CLI client.
 - **Design:** see [`spec.md`](./spec.md).
 - **Implementation plan (layer by layer):** see [`implementation.md`](./implementation.md).
 
-> Status: **Layer 0 (substrate) implemented** — config, logging/errors, async DB + AGE
-> access, migrations, tokens/auth, tenancy, the auth/admin API, the seed, and an idle worker
-> runtime are in place and tested. Ingestion/search/graph/ask/insight layers are still stubs.
+> Status: **Layer 3 (graph) write path implemented** — on top of L0–L2, ingestion now also
+> extracts entities + typed relationships (LLM via OpenRouter) and builds a provenance-rich,
+> scope-isolated knowledge graph in Apache AGE: one canonical entity node per real-world entity,
+> every edge carrying scope + provenance, contradictions linked by `CONTRADICTS`, and an
+> append-only mutation log. Graph expansion in search, the graph API, and the CLI are deferred to
+> a follow-up; ask/insight layers are still stubs.
 
 ## Repo layout
 

@@ -11,7 +11,7 @@ app = typer.Typer(no_args_is_help=True, help="Odin — the seeker of knowledge."
 
 app.add_typer(login.app, name="login")
 app.add_typer(ingest.app, name="ingest")
-app.add_typer(search.app, name="search")
+app.command("search")(search.search)
 app.add_typer(ask.app, name="ask")
 app.add_typer(admin.app, name="admin")
 app.add_typer(graph.app, name="graph")

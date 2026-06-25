@@ -27,6 +27,9 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Argument", "typer.Option"]
+
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 
@@ -34,5 +37,5 @@ asyncio_mode = "auto"
 python_version = "3.12"
 
 [[tool.mypy.overrides]]
-module = ["boto3.*", "botocore.*", "tiktoken.*", "bs4.*", "pgvector.*", "openai.*"]
+module = ["boto3.*", "botocore.*", "tiktoken.*", "bs4.*", "pgvector.*", "openai.*", "yaml.*"]
 ignore_missing_imports = true
