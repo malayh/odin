@@ -89,3 +89,12 @@ class Client:
         if scope:
             payload["scope"] = scope
         return self._request("POST", "/search", json=payload)
+
+    def find_entities(self, q: str) -> Any:
+        return self._request("GET", "/graph/entities", params={"q": q})
+
+    def get_entity(self, key: str) -> Any:
+        return self._request("GET", f"/graph/entities/{key}")
+
+    def entity_history(self, key: str) -> Any:
+        return self._request("GET", f"/graph/entities/{key}/history")
