@@ -1,6 +1,7 @@
 import uuid
 
-from odin.services import mutations, resolution
+from odin.models import DocState, Document, ScopeType
+from odin.services import graph, mutations, resolution
 from odin.services.extraction import Extracted, ExtractedEntity
 
 _VECS = {
@@ -53,6 +54,36 @@ async def test_resolve_respects_llm_rejection(db_session, monkeypatch):
         db_session, _ex(), "personal", str(uuid.uuid4()), str(uuid.uuid4())
     )
     assert merges == {}
+
+
+async def test_resolve_merges_alias_into_existing_graph_entity(db_session, monkeypatch):
+    async def embed(texts):
+        v = {"Helios": [1.0, 0.0], "Helios Robotics": [0.99, 0.01]}
+        return [v[t] for t in texts]
+
+    monkeypatch.setattr(resolution.embedding, "embed_texts", embed)
+    _fake_confirm(monkeypatch, True)
+
+    uid = uuid.uuid4()
+    doc = Document(
+        id=uuid.uuid4(),
+        owner_user_id=uid,
+        scope_type=ScopeType.personal,
+        scope_id=uid,
+        key="a.md",
+        content_hash=uuid.uuid4().hex,
+        version=1,
+        state=DocState.indexed,
+    )
+    await graph.upsert_document(db_session, doc)
+    await graph.upsert_entity(db_session, "org:helios robotics", "Helios Robotics", "Org")
+    await graph.add_mention(
+        db_session, doc, "org:helios robotics", "Helios Robotics", "extracted", 1.0, "x"
+    )
+
+    ex = Extracted(entities=[ExtractedEntity(name="Helios", type="Org", confidence=0.9)])
+    merges = await resolution.resolve(db_session, ex, "personal", str(uid), str(uuid.uuid4()))
+    assert merges == {"org:helios": ("org:helios robotics", "Helios Robotics", "Org")}
 
 
 async def test_resolve_does_not_merge_dissimilar(db_session, monkeypatch):

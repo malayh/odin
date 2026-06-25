@@ -426,15 +426,15 @@ extends to `extract → graph-upsert`.
 - **Depends on:** 3.4, 3.5, 2.2.
 
 ### Step 3.7 — Extend pipeline with `extract → graph-upsert`
-- **Goal:** ingestion writes the graph with provenance and resolves entities; contradictions
-  are kept, not silently merged.
+- **Goal:** ingestion writes the graph with provenance and resolves entities across documents
+  into canonical nodes; documents asserting different facts simply both persist (no contradiction
+  adjudication at ingest — spec §7.7).
 - **Deliverables:** insert `extract` then `graph-upsert` stages after `embed` in
-  `worker/handlers.py`; upsert via 3.2, resolve via 3.6, log via 3.5; add a `CONTRADICTS` edge
-  when a new assertion conflicts with an existing one (spec §7.7).
+  `worker/handlers.py`; upsert via 3.2, resolve via 3.6 (cross-document, scope-global), log via 3.5.
 - **Acceptance:** ingesting a corpus builds canonical entities + scoped, provenance-rich edges;
-  conflicting docs both persist, linked by `CONTRADICTS`; pipeline still reaches `indexed`.
-- **Tests:** `tests/test_pipeline_l3.py` (integration) — end-to-end graph build, contradiction
-  handling, provenance completeness.
+  documents asserting different facts both persist with their provenance; pipeline reaches `indexed`.
+- **Tests:** `tests/test_pipeline_l3.py` (integration) — end-to-end graph build, re-ingest
+  idempotency, provenance completeness.
 - **Depends on:** 3.2–3.6.
 
 ### Step 3.8 — Graph expansion in retrieval (stage 2)
@@ -461,7 +461,8 @@ extends to `extract → graph-upsert`.
 
 **Layer 3 exit criteria:** ingestion builds a provenance-rich, self-consistent graph with
 canonical entities and scoped edges; retrieval expands through it without leakage; every
-mutation is logged and reversible; contradictions are surfaced, not hidden.
+mutation is logged and reversible; conflicting facts are stored side by side with their
+provenance and surfaced at query time, not adjudicated at ingest.
 
 ---
 

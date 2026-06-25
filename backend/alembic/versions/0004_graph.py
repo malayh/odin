@@ -21,7 +21,7 @@ branch_labels = None
 depends_on = None
 
 _VLABELS = ("Entity", "Document")
-_ELABELS = ("MENTIONS", "REL", "CONTRADICTS")
+_ELABELS = ("MENTIONS", "REL")
 
 
 def _create_label(kind: str, name: str) -> str:

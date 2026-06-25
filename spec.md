@@ -186,7 +186,7 @@ outside the caller's scope set can enter the candidate set, the context window, 
 - **Extraction edges** (asserted by a source doc): `Document -[MENTIONS]-> Entity`,
   `Entity -[WORKS_AT|BUILDS|HAS_A|RELATED_TO|…]-> Entity`.
 - **Inference edges** (reasoned by Odin): e.g. `Doc1, Doc2 -[IMPLIES]-> Insight`,
-  `SUPPORTS`, `CONTRADICTS`, `DERIVED_FROM`. These connect documents (and entities) through
+  `SUPPORTS`, `DERIVED_FROM`. These connect documents (and entities) through
   Odin's synthesis, not direct extraction.
 - **Full provenance on every node and edge:** `origin`
   (`extracted`/`inferred`/`merged`/`user`), source document id(s), extraction
@@ -209,7 +209,7 @@ documents** and reusable later.
 Two generation modes:
 - **On-demand** — user triggers synthesis (`odin insight` / certain `ask` queries).
 - **Proactive (later phase — not in MVP)** — a background process periodically mines the
-  corpus/graph for new insights, contradictions, and emerging connections, and proposes
+  corpus/graph for new insights, conflicting facts, and emerging connections, and proposes
   them. When added, it runs scheduled + budgeted with an on/off toggle. **MVP ships
   on-demand insights only.**
 
@@ -230,10 +230,15 @@ records actor (which process/model), inputs, rationale, confidence, and timestam
 enables **explain** ("why is X linked to Y?"), **undo** (revert a bad merge), and
 **replay**. Trades extra storage + write complexity for full accountability.
 
-### 7.7 Contradictions
-When two documents assert conflicting facts, Odin **keeps both** (each with its provenance
-+ confidence) and links them with a **`CONTRADICTS`** edge. Answers surface the conflict
-("sources disagree…") rather than silently picking a winner — honest and auditable.
+### 7.7 Conflicting facts: store everything, surface at query time
+Odin does **not** detect or adjudicate contradictions during ingestion. When documents assert
+different facts (Dana is "CTO" in one doc and "VP Engineering" in another; an entity relates to
+several others), Odin simply **stores every assertion** with its own provenance + confidence — no
+special "contradiction" edge, no winner picked, no automatic conflict flag. Disagreement is
+surfaced at **query time**: retrieval and answering return all the facts a caller can see, each
+cited to its source, and the **user decides what they mean**. Whether two values genuinely
+conflict or are both legitimately true (someone works at two places) is the user's call, not
+something baked into the knowledge base.
 
 ### 7.5 Entity resolution
 Embedding + LLM canonicalization: cluster mentions by name + embedding similarity, LLM
@@ -352,7 +357,7 @@ ignorance", stateless ask with client-supplied context; `odin ask`.
 
 **Phase 4 — Derived knowledge (on-demand)**
 `odin insight` / insight-style asks → persisted derived docs + reasoning subgraph
-(`IMPLIES`/`DERIVED_FROM`); tiered trust + confirm/reject of proposed facts; `CONTRADICTS`.
+(`IMPLIES`/`DERIVED_FROM`); tiered trust + confirm/reject of proposed facts.
 
 **Later (post-MVP)**
 Proactive insight miner (scheduled + budgeted); pluggable format converters (PDF/Office/
@@ -377,7 +382,7 @@ _Relational (Postgres):_
 _Graph (Apache AGE):_
 - Nodes: `Document`, `Entity{origin, aliases, type, confidence}`.
 - Edges: `MENTIONS`, relationship types (`WORKS_AT`/`BUILDS`/`HAS_A`/`RELATED_TO`/…),
-  inference edges (`IMPLIES`/`SUPPORTS`/`CONTRADICTS`/`DERIVED_FROM`) — **all carry
+  inference edges (`IMPLIES`/`SUPPORTS`/`DERIVED_FROM`) — **all carry
   `scope` + provenance + confidence**.
 
 _Object store (S3/MinIO):_ content-addressed original blobs + extracted text.

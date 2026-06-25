@@ -118,34 +118,6 @@ async def add_relationship(
     )
 
 
-async def add_contradiction(
-    session: AsyncSession,
-    scope_type: str,
-    scope_id: str,
-    subject_key: str,
-    predicate: str,
-    object_a: str,
-    object_b: str,
-    source_doc_ids: list[str],
-) -> None:
-    await _cy(
-        session,
-        "MATCH (a:Entity {key:$a}), (b:Entity {key:$b}) "
-        "CREATE (a)-[:CONTRADICTS {subject_key:$subj, predicate:$predicate, "
-        "scope_type:$scope_type, scope_id:$scope_id, source_doc_ids:$sdi, created_at:$now}]->(b)",
-        {
-            "a": object_a,
-            "b": object_b,
-            "subj": subject_key,
-            "predicate": predicate,
-            "scope_type": scope_type,
-            "scope_id": scope_id,
-            "sdi": source_doc_ids,
-            "now": _now(),
-        },
-    )
-
-
 async def delete_document_contributions(session: AsyncSession, doc_id: str) -> None:
     await _cy(
         session,
@@ -154,11 +126,6 @@ async def delete_document_contributions(session: AsyncSession, doc_id: str) -> N
     )
     await _cy(
         session, "MATCH ()-[r:REL]->() WHERE r.source_doc_id=$doc_id DELETE r", {"doc_id": doc_id}
-    )
-    await _cy(
-        session,
-        "MATCH ()-[c:CONTRADICTS]->() WHERE $doc_id IN c.source_doc_ids DELETE c",
-        {"doc_id": doc_id},
     )
     await _cy(session, "MATCH (d:Document {doc_id:$doc_id}) DETACH DELETE d", {"doc_id": doc_id})
 
@@ -220,39 +187,18 @@ async def upsert(
         )
 
 
-async def detect_and_link_contradictions(
+async def list_scope_entities(
     session: AsyncSession, scope_type: str, scope_id: str
-) -> int:
+) -> list[tuple[str, str, str]]:
     rows = await _cy(
         session,
-        "MATCH (s:Entity)-[r:REL]->(o:Entity) "
-        "WHERE r.scope_type=$scope_type AND r.scope_id=$scope_id "
-        "RETURN s.key, r.predicate, o.key, r.source_doc_id",
+        "MATCH (:Document)-[m:MENTIONS]->(e:Entity) "
+        "WHERE m.scope_type=$scope_type AND m.scope_id=$scope_id "
+        "RETURN DISTINCT e.key, e.name, e.type",
         {"scope_type": scope_type, "scope_id": scope_id},
-        columns=("subject_key", "predicate", "object_key", "source_doc_id"),
+        columns=("key", "name", "type"),
     )
-    groups: dict[tuple[str, str], dict[str, str]] = {}
-    for subj, pred, obj, sdi in rows:
-        groups.setdefault((subj, pred), {}).setdefault(obj, sdi)
-    linked = 0
-    for (subj, pred), objs in groups.items():
-        if len(objs) < 2:
-            continue
-        keys = sorted(objs)
-        first = keys[0]
-        for other in keys[1:]:
-            await add_contradiction(
-                session,
-                scope_type,
-                scope_id,
-                subj,
-                pred,
-                first,
-                other,
-                [objs[first], objs[other]],
-            )
-            linked += 1
-    return linked
+    return [(r[0], r[1], r[2]) for r in rows]
 
 
 async def read_entity(

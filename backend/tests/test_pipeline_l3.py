@@ -110,7 +110,7 @@ async def test_pipeline_builds_scoped_provenance_graph(worker_db, monkeypatch):
     assert rels[0][6]  # provenance model present
 
 
-async def test_pipeline_links_contradictions_and_is_idempotent(worker_db, monkeypatch):
+async def test_pipeline_reingest_is_idempotent(worker_db, monkeypatch):
     _setup(monkeypatch)
     uid = uuid.uuid4()
     async with worker_db() as s:
@@ -122,26 +122,10 @@ async def test_pipeline_links_contradictions_and_is_idempotent(worker_db, monkey
     await _run_one(job_a)
     await _run_one(job_b)
 
-    async def _contradictions():
-        async with worker_db() as s:
-            rows = await graph._cy(
-                s,
-                "MATCH (a:Entity)-[c:CONTRADICTS]->(b:Entity) "
-                "RETURN c.subject_key, c.predicate, a.key, b.key",
-                columns=("subj", "pred", "a", "b"),
-            )
-            return rows
-
     async def _rel_count():
         async with worker_db() as s:
             rows = await graph._cy(s, "MATCH ()-[r:REL]->() RETURN count(r)", columns=("c",))
             return rows[0][0]
-
-    contradictions = await _contradictions()
-    assert len(contradictions) == 1
-    subj, pred, a, b = contradictions[0]
-    assert (subj, pred) == ("person:bob", "WORKS_AT")
-    assert {a, b} == {"org:acme", "org:globex"}
 
     before = await _rel_count()
     await _run_one(job_a)

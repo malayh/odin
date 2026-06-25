@@ -6,7 +6,7 @@ from collections import defaultdict
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from odin.services import embedding, llm, mutations, ontology
+from odin.services import embedding, graph, llm, mutations, ontology
 from odin.services.extraction import Extracted
 
 _THRESHOLD = 0.85
@@ -44,13 +44,27 @@ async def resolve(
     threshold: float = _THRESHOLD,
 ) -> dict[str, tuple[str, str, str]]:
     ents = extracted.entities
-    if len(ents) < 2:
+    if not ents:
         return {}
-    keys = [ontology.entity_key(e.name, e.type) for e in ents]
-    types = [ontology.normalize_type(e.type)[0] for e in ents]
-    vecs = await embedding.embed_texts([e.name for e in ents])
+    new_keys = [ontology.entity_key(e.name, e.type) for e in ents]
+    new_types = [ontology.normalize_type(e.type)[0] for e in ents]
+    new_key_set = set(new_keys)
+    existing = [
+        (k, n, t)
+        for k, n, t in await graph.list_scope_entities(session, scope_type, scope_id)
+        if k not in new_key_set
+    ]
 
-    parent = list(range(len(ents)))
+    n = len(ents)
+    names = [e.name for e in ents] + [x[1] for x in existing]
+    keys = new_keys + [x[0] for x in existing]
+    types = new_types + [x[2] for x in existing]
+    in_graph = [False] * n + [True] * len(existing)
+    if len(names) < 2:
+        return {}
+    vecs = await embedding.embed_texts(names)
+
+    parent = list(range(len(names)))
 
     def find(x: int) -> int:
         while parent[x] != x:
@@ -61,29 +75,31 @@ async def resolve(
     def union(a: int, b: int) -> None:
         parent[find(a)] = find(b)
 
-    for i in range(len(ents)):
-        for j in range(i + 1, len(ents)):
-            if types[i] != types[j] or find(i) == find(j):
+    for i in range(len(names)):
+        for j in range(i + 1, len(names)):
+            if find(i) == find(j) or (in_graph[i] and in_graph[j]):
                 continue
             if keys[i] == keys[j]:
                 union(i, j)
             elif _cosine(vecs[i], vecs[j]) >= threshold and await _confirm_same(
-                ents[i].name, ents[j].name
+                names[i], names[j]
             ):
                 union(i, j)
 
     clusters: dict[int, list[int]] = defaultdict(list)
-    for i in range(len(ents)):
+    for i in range(len(names)):
         clusters[find(i)].append(i)
 
     merges: dict[str, tuple[str, str, str]] = {}
     for members in clusters.values():
-        if len({keys[m] for m in members}) < 2:
-            continue
-        canon = max(members, key=lambda m: (len(ents[m].name), ents[m].confidence))
-        ckey, cname, ctype = keys[canon], ents[canon].name, types[canon]
+        anchored = [m for m in members if in_graph[m]]
+        if anchored:
+            canon = max(anchored, key=lambda m: len(names[m]))
+        else:
+            canon = max(members, key=lambda m: (len(names[m]), ents[m].confidence))
+        ckey, cname, ctype = keys[canon], names[canon], types[canon]
         for m in members:
-            if keys[m] == ckey:
+            if in_graph[m] or keys[m] == ckey:
                 continue
             merges[keys[m]] = (ckey, cname, ctype)
             await mutations.log(
@@ -94,7 +110,7 @@ async def resolve(
                     "canonical_key": ckey,
                     "absorbed_key": keys[m],
                     "absorbed_name": ents[m].name,
-                    "absorbed_type": types[m],
+                    "absorbed_type": new_types[m],
                     "source_doc_id": source_doc_id,
                     "alias": ents[m].name,
                     "scope_type": scope_type,

@@ -71,7 +71,6 @@ async def ingest_handler(job: dict[str, Any]) -> None:
         )
         await graph.delete_document_contributions(session, str(document_id))
         await graph.upsert(session, doc, extracted, merges, settings.answer_model)
-        await graph.detect_and_link_contradictions(session, scope_type, scope_id)
 
         doc.state = DocState.indexed
         await session.commit()
