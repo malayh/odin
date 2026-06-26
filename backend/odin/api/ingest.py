@@ -7,7 +7,6 @@ from fastapi import APIRouter, Form, UploadFile, status
 from odin.api.deps import PrincipalDep, SessionDep
 from odin.schemas import IngestOut
 from odin.services import ingest as ingest_service
-from odin.tenancy import Scope, resolve_scope_set
 
 router = APIRouter()
 
@@ -18,10 +17,7 @@ async def ingest(
     session: SessionDep,
     file: UploadFile,
     key: Annotated[str, Form()],
-    scope: Annotated[str, Form()] = "personal",
 ) -> IngestOut:
-    scope_set = await resolve_scope_set(session, principal)
-    target = Scope.parse(scope, principal.id)
     data = await file.read()
-    doc, job, deduped = await ingest_service.intake(session, scope_set, target, key, data)
+    doc, job, deduped = await ingest_service.intake(session, principal.id, key, data)
     return IngestOut(document_id=doc.id, job_id=job.id if job else None, deduped=deduped)

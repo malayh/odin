@@ -1,6 +1,6 @@
 import uuid
 
-from odin.models import Chunk, DocState, Document, Embedding, Job, JobState, ScopeType, User
+from odin.models import Chunk, DocState, Document, Embedding, Job, JobState, User
 from odin.services import blobs, embedding, llm
 from odin.services.extraction import Extracted
 from odin.worker import tasks
@@ -26,8 +26,6 @@ async def _seed(sm) -> dict:
         await s.flush()
         doc = Document(
             owner_user_id=user.id,
-            scope_type=ScopeType.personal,
-            scope_id=user.id,
             key="l2.md",
             content_hash="h",
             blob_uri="s3://odin/h",

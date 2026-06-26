@@ -1,6 +1,6 @@
 import uuid
 
-from odin.models import DocState, Document, ScopeType
+from odin.models import DocState, Document
 from odin.services import graph, mutations, resolution
 from odin.services.extraction import Extracted, ExtractedEntity
 
@@ -40,7 +40,7 @@ async def test_resolve_merges_similar_confirmed(db_session, monkeypatch):
     _fake_embed(monkeypatch)
     _fake_confirm(monkeypatch, True)
     uid = uuid.uuid4()
-    merges = await resolution.resolve(db_session, _ex(), "personal", str(uid), str(uuid.uuid4()))
+    merges = await resolution.resolve(db_session, _ex(), uid, str(uuid.uuid4()))
 
     assert merges == {"person:bob": ("person:bob smith", "Bob Smith", "Person")}
     rows = await mutations.explain(db_session, entity_key="person:bob")
@@ -51,7 +51,7 @@ async def test_resolve_respects_llm_rejection(db_session, monkeypatch):
     _fake_embed(monkeypatch)
     _fake_confirm(monkeypatch, False)
     merges = await resolution.resolve(
-        db_session, _ex(), "personal", str(uuid.uuid4()), str(uuid.uuid4())
+        db_session, _ex(), uuid.uuid4(), str(uuid.uuid4())
     )
     assert merges == {}
 
@@ -68,8 +68,6 @@ async def test_resolve_merges_alias_into_existing_graph_entity(db_session, monke
     doc = Document(
         id=uuid.uuid4(),
         owner_user_id=uid,
-        scope_type=ScopeType.personal,
-        scope_id=uid,
         key="a.md",
         content_hash=uuid.uuid4().hex,
         version=1,
@@ -82,7 +80,7 @@ async def test_resolve_merges_alias_into_existing_graph_entity(db_session, monke
     )
 
     ex = Extracted(entities=[ExtractedEntity(name="Helios", type="Org", confidence=0.9)])
-    merges = await resolution.resolve(db_session, ex, "personal", str(uid), str(uuid.uuid4()))
+    merges = await resolution.resolve(db_session, ex, uid, str(uuid.uuid4()))
     assert merges == {"org:helios": ("org:helios robotics", "Helios Robotics", "Org")}
 
 
@@ -101,6 +99,6 @@ async def test_resolve_does_not_merge_dissimilar(db_session, monkeypatch):
         relations=[],
     )
     merges = await resolution.resolve(
-        db_session, ex, "personal", str(uuid.uuid4()), str(uuid.uuid4())
+        db_session, ex, uuid.uuid4(), str(uuid.uuid4())
     )
     assert merges == {}

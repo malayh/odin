@@ -12,14 +12,11 @@ class AskTurn(BaseModel):
 
 class AskIn(BaseModel):
     question: str
-    scope: str | None = None
     history: list[AskTurn] | None = None
 
 
 class AskCitation(BaseModel):
     document_id: uuid.UUID
-    scope_type: str
-    scope_id: uuid.UUID
 
 
 class AskOut(BaseModel):

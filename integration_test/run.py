@@ -8,10 +8,9 @@ Run from the repo ROOT, with the stack up and real provider keys set:
     just worker    # terminal 2
     uv run python integration_test/run.py
 
-The harness seeds an admin, logs in, creates the "Helios Robotics" org, ingests
-the personal and org corpora via `odin ingest`, then reports documents, chunks,
-entities, relationships, aliases, sample searches, and a
-scope-isolation spot-check.
+The harness seeds an admin, logs in, ingests the whole corpus into the admin's
+single brain via `odin ingest`, consolidates, then reports documents, chunks,
+entities, relationships, aliases, and sample searches.
 """
 
 import asyncio
@@ -26,7 +25,7 @@ import httpx
 from odin.config import get_settings
 from odin.db import SessionLocal
 from odin.graphdb import cypher
-from odin.models import Chunk, Document, Org
+from odin.models import Chunk, Document
 from odin.seed import seed_admin
 from odin.services import resolution
 from sqlalchemy import func, select
@@ -36,7 +35,6 @@ CORPUS = HERE / "corpus"
 CONFIG = HERE / ".odin_config.yaml"
 SERVER = os.environ.get("ODIN_SERVER", "http://localhost:8000")
 ADMIN_EMAIL = "mara@helios.test"
-ORG_NAME = "Helios Robotics"
 ENV = {**os.environ, "ODIN_CONFIG": str(CONFIG)}
 GRAPH = get_settings().age_graph
 
@@ -67,17 +65,6 @@ def preflight() -> None:
         )
 
 
-async def ensure_org() -> str:
-    try:
-        return cli("admin", "create-org", "--name", ORG_NAME, "--json")["id"]
-    except RuntimeError as e:
-        if "already exists" not in str(e):
-            raise
-    async with SessionLocal() as s:
-        org = await s.scalar(select(Org).where(Org.name == ORG_NAME))
-    return str(org.id)
-
-
 def report_ingest(results: Any) -> None:
     for r in results:
         print(f"  {r['key']:34} {r['state']}")
@@ -87,13 +74,11 @@ def report_ingest(results: Any) -> None:
     print(f", {len(other)} other: {other}\n" if other else "\n")
 
 
-async def observe(org_id: str) -> None:
+async def observe() -> None:
     async with SessionLocal() as s:
         doc_rows = (
             await s.execute(
-                select(Document.scope_type, Document.state, func.count()).group_by(
-                    Document.scope_type, Document.state
-                )
+                select(Document.state, func.count()).group_by(Document.state)
             )
         ).all()
         chunks = await s.scalar(select(func.count()).select_from(Chunk))
@@ -107,8 +92,8 @@ async def observe(org_id: str) -> None:
             s,
             GRAPH,
             "MATCH (a:Entity)-[r:REL]->(b:Entity) "
-            "RETURN a.key, r.predicate, b.key, r.scope_type, r.confidence",
-            columns=("sub", "pred", "obj", "scope", "conf"),
+            "RETURN a.key, r.predicate, b.key, r.confidence",
+            columns=("sub", "pred", "obj", "conf"),
         )
         aliases = await cypher(
             s,
@@ -118,8 +103,8 @@ async def observe(org_id: str) -> None:
         )
 
     print("== documents ==")
-    for scope_type, state, n in doc_rows:
-        print(f"  {scope_type.value:9} {state.value:9} {n}")
+    for state, n in doc_rows:
+        print(f"  {state.value:9} {n}")
     print(f"  chunks: {chunks}\n")
 
     print(f"== entities ({len(entities)}) ==")
@@ -128,8 +113,8 @@ async def observe(org_id: str) -> None:
     print()
 
     print(f"== relationships ({len(rels)}) ==")
-    for sub, pred, obj, scope, conf in sorted(rels, key=lambda r: (str(r[3]), str(r[0]))):
-        print(f"  [{scope}] {sub} -{pred}-> {obj}  ({conf})")
+    for sub, pred, obj, conf in sorted(rels, key=lambda r: (str(r[0]), str(r[1]))):
+        print(f"  {sub} -{pred}-> {obj}  ({conf})")
     print()
 
     alias_map: dict[str, set[str]] = {}
@@ -144,54 +129,37 @@ async def observe(org_id: str) -> None:
 
     print("== search samples ==")
     samples = [
-        ("When does Project Atlas ship?", f"org:{org_id}"),
-        ("How much was the Series B?", f"org:{org_id}"),
-        ("my candid take on the team", "personal"),
+        "When does Project Atlas ship?",
+        "How much was the Series B?",
+        "my candid take on the team",
     ]
-    for q, scope in samples:
-        hits = cli("search", q, "--scope", scope, "--top-k", "3", "--json")["hits"]
-        print(f"  [{scope}] {q!r}")
+    for q in samples:
+        hits = cli("search", q, "--top-k", "3", "--json")["hits"]
+        print(f"  {q!r}")
         for h in hits:
             print(f"     {h['score']:.3f}  {h['text'][:70].strip()!r}")
     print()
-
-    print("== isolation spot-check ==")
-    q = "Series B from Northwind Capital"
-    org_hits = cli("search", q, "--scope", f"org:{org_id}", "--top-k", "5", "--json")["hits"]
-    per_hits = cli("search", q, "--scope", "personal", "--top-k", "5", "--json")["hits"]
-    leaks = [h for h in org_hits if h["scope_type"] != "org"]
-    leaks += [h for h in per_hits if h["scope_type"] != "personal"]
-    org_ok = all(h["scope_type"] == "org" for h in org_hits)
-    per_ok = all(h["scope_type"] == "personal" for h in per_hits)
-    print(f"  org query      -> {len(org_hits)} hits, all org?      {org_ok}")
-    print(f"  personal query -> {len(per_hits)} hits, all personal? {per_ok}")
-    print(f"  RESULT: {'OK — no cross-scope leakage' if not leaks else f'LEAK: {leaks}'}")
 
 
 async def main() -> None:
     preflight()
     async with SessionLocal() as s:
         user, token = await seed_admin(s, ADMIN_EMAIL)
-        user_id = str(user.id)
+        user_id = user.id
 
     cli("login", "--token", token, "--server", SERVER, "--json")
-    org_id = await ensure_org()
-    print(f"admin: {ADMIN_EMAIL} ({user_id})")
-    print(f"org:   {ORG_NAME} ({org_id})\n")
+    print(f"admin: {ADMIN_EMAIL} ({user_id})\n")
 
-    print("== ingest: personal ==")
-    report_ingest(cli("ingest", "-d", str(CORPUS / "personal"), "--scope", "personal", "--json"))
-    print("== ingest: org ==")
-    report_ingest(cli("ingest", "-d", str(CORPUS / "org"), "--scope", f"org:{org_id}", "--json"))
+    print("== ingest: corpus ==")
+    report_ingest(cli("ingest", "-d", str(CORPUS), "--json"))
 
     print("== consolidate ==")
     async with SessionLocal() as s:
-        n_personal = await resolution.consolidate(s, "personal", user_id)
-        n_org = await resolution.consolidate(s, "org", org_id)
+        n = await resolution.consolidate(s, user_id)
         await s.commit()
-    print(f"  personal: {n_personal} merges, org: {n_org} merges\n")
+    print(f"  {n} merges\n")
 
-    await observe(org_id)
+    await observe()
 
 
 if __name__ == "__main__":

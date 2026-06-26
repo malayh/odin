@@ -1,4 +1,4 @@
-"""Run a scope-filtered search."""
+"""Run a search over your knowledge base."""
 
 import typer
 from rich.table import Table
@@ -10,9 +10,6 @@ from odin_cli.config import require
 
 def search(
     query: str = typer.Argument(..., help="Search query."),
-    scope: str | None = typer.Option(
-        None, "--scope", help="Limit to a scope (default: all readable)."
-    ),
     top_k: int = typer.Option(10, "--top-k", "-k"),
     json_out: bool = typer.Option(False, "--json"),
 ) -> None:
@@ -20,7 +17,7 @@ def search(
     cfg = require()
     try:
         with Client(cfg) as client:
-            result = client.search(query, scope, top_k)
+            result = client.search(query, top_k)
     except ApiError as e:
         output.fail(e.message)
     if json_out:

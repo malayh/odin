@@ -16,7 +16,7 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-_WORKER_TABLES = "graph_mutations, jobs, chunks, documents, memberships, access_tokens, orgs, users"
+_WORKER_TABLES = "graph_mutations, jobs, chunks, documents, access_tokens, users"
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 

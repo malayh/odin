@@ -1,13 +1,11 @@
 import uuid
 from types import SimpleNamespace
 
-from odin.models import ScopeType
 from odin.services import graph, resolution
-from odin.tenancy import ScopeSet
 
 
-def _doc(scope_id):
-    return SimpleNamespace(id=uuid.uuid4(), scope_type=ScopeType.personal, scope_id=scope_id)
+def _doc(owner):
+    return SimpleNamespace(id=uuid.uuid4(), owner_user_id=owner)
 
 
 def _ent(name, type_):
@@ -54,10 +52,9 @@ async def test_merge_nodes_repoints_edges_and_aliases(worker_db):
         await s.commit()
 
     async with worker_db() as s:
-        scope_set = ScopeSet(user_id=uid, roles={})
-        canonical = await graph.read_entity(s, scope_set, "org:helios robotics")
-        gone = await graph.read_entity(s, scope_set, "org:helios")
-        atlas = await graph.read_entity(s, scope_set, "project:atlas")
+        canonical = await graph.read_entity(s, uid, "org:helios robotics")
+        gone = await graph.read_entity(s, uid, "org:helios")
+        atlas = await graph.read_entity(s, uid, "project:atlas")
 
     assert gone is None
     assert {"Helios", "Helios Robotics"} <= set(canonical["aliases"])
@@ -89,10 +86,10 @@ async def test_consolidate_merges_duplicate_nodes(worker_db, monkeypatch):
     monkeypatch.setattr(resolution.llm, "complete_json", confirm)
 
     async with worker_db() as s:
-        merged = await resolution.consolidate(s, "personal", str(uid))
+        merged = await resolution.consolidate(s, uid)
         await s.commit()
 
     assert merged == 1
     async with worker_db() as s:
-        remaining = await graph.list_scope_entities(s, "personal", str(uid))
+        remaining = await graph.list_owner_entities(s, uid)
     assert {e[0] for e in remaining} == {"org:helios robotics"}

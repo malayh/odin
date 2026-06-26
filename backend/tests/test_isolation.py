@@ -1,7 +1,7 @@
 import uuid
 
-from odin.models import Document, ScopeType, User
-from odin.tenancy import resolve_scope_set, scope_filter
+from odin.models import Document, User
+from odin.tenancy import owner_filter
 from sqlalchemy import select
 
 
@@ -12,11 +12,9 @@ async def _user(session, email):
     return user
 
 
-async def _doc(session, owner_id, scope_type, scope_id):
+async def _doc(session, owner_id):
     doc = Document(
         owner_user_id=owner_id,
-        scope_type=scope_type,
-        scope_id=scope_id,
         key="iso.md",
         content_hash=uuid.uuid4().hex,
     )
@@ -25,23 +23,19 @@ async def _doc(session, owner_id, scope_type, scope_id):
     return doc
 
 
-async def test_scope_filter_excludes_other_users_and_unjoined_orgs(db_session):
+async def test_owner_filter_excludes_other_users(db_session):
     me = await _user(db_session, "iso-me@example.com")
     other = await _user(db_session, "iso-other@example.com")
-    unjoined_org = uuid.uuid4()
 
-    mine = await _doc(db_session, me.id, ScopeType.personal, me.id)
-    theirs = await _doc(db_session, other.id, ScopeType.personal, other.id)
-    foreign_org_doc = await _doc(db_session, other.id, ScopeType.org, unjoined_org)
+    mine = await _doc(db_session, me.id)
+    theirs = await _doc(db_session, other.id)
 
-    scope_set = await resolve_scope_set(db_session, me)
     visible = set(
-        (await db_session.execute(select(Document.id).where(scope_filter(scope_set)))).scalars()
+        (await db_session.execute(select(Document.id).where(owner_filter(me.id)))).scalars()
     )
 
     assert mine.id in visible
     assert theirs.id not in visible
-    assert foreign_org_doc.id not in visible
 
 
 async def test_vector_search_excludes_other_users(db_session, monkeypatch):
@@ -52,7 +46,7 @@ async def test_vector_search_excludes_other_users(db_session, monkeypatch):
     other = await _user(db_session, "vec-other@example.com")
 
     async def _seed(owner):
-        doc = await _doc(db_session, owner.id, ScopeType.personal, owner.id)
+        doc = await _doc(db_session, owner.id)
         c = Chunk(
             document_id=doc.id,
             ordinal=0,
@@ -75,8 +69,7 @@ async def test_vector_search_excludes_other_users(db_session, monkeypatch):
 
     monkeypatch.setattr(embedding, "embed_texts", fake_q)
 
-    scope_set = await resolve_scope_set(db_session, me)
-    hits = await retrieval.search(db_session, scope_set, "q", None, top_k=10)
+    hits = await retrieval.search(db_session, me.id, "q", top_k=10)
     ids = {h.chunk_id for h in hits}
 
     assert my_chunk.id in ids
@@ -93,7 +86,7 @@ async def test_ask_excludes_other_users(db_session, monkeypatch):
     other = await _user(db_session, "ask-other@example.com")
 
     async def _seed(owner, text):
-        doc = await _doc(db_session, owner.id, ScopeType.personal, owner.id)
+        doc = await _doc(db_session, owner.id)
         c = Chunk(
             document_id=doc.id,
             ordinal=0,
@@ -117,14 +110,13 @@ async def test_ask_excludes_other_users(db_session, monkeypatch):
     async def fake_llm(prompt, schema, system=None):
         if schema.__name__ == "_Ranking":
             return schema(rankings=[])
-        ids = re.findall(r"\[doc ([0-9a-f-]+) \|", prompt)
+        ids = re.findall(r"\[doc ([0-9a-f-]+)\]", prompt)
         return schema(answer="ok", confident=True, used_document_ids=ids + [str(theirs.id)])
 
     monkeypatch.setattr(embedding, "embed_texts", fake_q)
     monkeypatch.setattr(llm, "complete_json", fake_llm)
 
-    scope_set = await resolve_scope_set(db_session, me)
-    out = await answering.answer(db_session, scope_set, "q")
+    out = await answering.answer(db_session, me.id, "q")
     cited = {c.document_id for c in out.citations}
 
     assert mine.id in cited
@@ -134,15 +126,13 @@ async def test_ask_excludes_other_users(db_session, monkeypatch):
 async def test_graph_traversal_excludes_other_users(worker_db):
     from types import SimpleNamespace
 
-    from odin.models import ScopeType
     from odin.services import graph
-    from odin.tenancy import ScopeSet
 
     a = uuid.uuid4()
     b = uuid.uuid4()
 
-    def _doc(scope_id):
-        return SimpleNamespace(id=uuid.uuid4(), scope_type=ScopeType.personal, scope_id=scope_id)
+    def _d(owner):
+        return SimpleNamespace(id=uuid.uuid4(), owner_user_id=owner)
 
     def _ent(name, type_):
         return SimpleNamespace(name=name, type=type_, confidence=0.9)
@@ -158,12 +148,12 @@ async def test_graph_traversal_excludes_other_users(worker_db):
         )
 
     async with worker_db() as s:
-        await graph.upsert(s, _doc(a), _ex("Anvil", "Product"), {}, "m")
-        await graph.upsert(s, _doc(b), _ex("Secret", "Project"), {}, "m")
+        await graph.upsert(s, _d(a), _ex("Anvil", "Product"), {}, "m")
+        await graph.upsert(s, _d(b), _ex("Secret", "Project"), {}, "m")
         await s.commit()
 
     async with worker_db() as s:
-        view_a = await graph.read_entity(s, ScopeSet(user_id=a, roles={}), "org:shared")
+        view_a = await graph.read_entity(s, a, "org:shared")
 
     objects = {r["object_key"] for r in view_a["relationships"]}
     assert "product:anvil" in objects
@@ -175,13 +165,12 @@ async def test_graph_expansion_excludes_other_users(worker_db):
     from types import SimpleNamespace
 
     from odin.services import graph, retrieval
-    from odin.tenancy import ScopeSet
 
     a = uuid.uuid4()
     b = uuid.uuid4()
 
-    def _d(scope_id):
-        return SimpleNamespace(id=uuid.uuid4(), scope_type=ScopeType.personal, scope_id=scope_id)
+    def _d(owner):
+        return SimpleNamespace(id=uuid.uuid4(), owner_user_id=owner)
 
     def _ent(name, type_):
         return SimpleNamespace(name=name, type=type_, confidence=0.9)
@@ -205,7 +194,7 @@ async def test_graph_expansion_excludes_other_users(worker_db):
         await s.commit()
 
     async with worker_db() as s:
-        exp = await retrieval.expand(s, ScopeSet(user_id=a, roles={}), [doc_a.id])
+        exp = await retrieval.expand(s, a, [doc_a.id])
 
     objects = {r.object_key for r in exp.relationships}
     assert "product:anvil" in objects

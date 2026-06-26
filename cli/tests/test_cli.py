@@ -7,11 +7,10 @@ from typer.testing import CliRunner
 
 def test_config_round_trip(tmp_path, monkeypatch):
     monkeypatch.setenv("ODIN_CONFIG", str(tmp_path / "config.yaml"))
-    save(Config(server_url="http://x:8000", token="odin_pat_abc", default_scope="org:1"))
+    save(Config(server_url="http://x:8000", token="odin_pat_abc"))
     cfg = load()
     assert cfg.server_url == "http://x:8000"
     assert cfg.token == "odin_pat_abc"
-    assert cfg.default_scope == "org:1"
 
 
 def test_load_missing_returns_defaults(tmp_path, monkeypatch):

@@ -1,6 +1,6 @@
 import uuid
 
-from odin.models import DocState, Document, Job, ScopeType, User
+from odin.models import DocState, Document, Job, User
 from odin.services import blobs, embedding, graph, llm
 from odin.services.extraction import Extracted, ExtractedEntity, ExtractedRelation
 from odin.worker import tasks
@@ -47,8 +47,6 @@ async def _seed(sm, uid, blob_uri):
     async with sm() as s:
         doc = Document(
             owner_user_id=uid,
-            scope_type=ScopeType.personal,
-            scope_id=uid,
             key=f"{uuid.uuid4()}.md",
             content_hash=uuid.uuid4().hex,
             blob_uri=blob_uri,
@@ -88,11 +86,11 @@ async def test_pipeline_builds_scoped_provenance_graph(worker_db, monkeypatch):
         rels = await graph._cy(
             s,
             "MATCH (s:Entity)-[r:REL]->(o:Entity) RETURN s.key, r.predicate, o.key, "
-            "r.scope_type, r.scope_id, r.confidence, r.model",
-            columns=("s", "p", "o", "st", "sid", "conf", "model"),
+            "r.owner, r.confidence, r.model",
+            columns=("s", "p", "o", "owner", "conf", "model"),
         )
-    assert ("person:bob", "WORKS_AT", "org:acme", "personal", str(uid), 0.9) == rels[0][:6]
-    assert rels[0][6]  # provenance model present
+    assert ("person:bob", "WORKS_AT", "org:acme", str(uid), 0.9) == rels[0][:5]
+    assert rels[0][5]
 
 
 async def test_pipeline_reingest_is_idempotent(worker_db, monkeypatch):

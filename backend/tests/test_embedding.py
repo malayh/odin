@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 from odin.config import get_settings
-from odin.models import Chunk, DocState, Document, Embedding, ScopeType, User
+from odin.models import Chunk, DocState, Document, Embedding, User
 from odin.services import embedding
 from sqlalchemy import func, select
 
@@ -61,8 +61,6 @@ async def test_embed_chunks_inserts_one_vector_per_chunk(db_session, monkeypatch
     await db_session.flush()
     doc = Document(
         owner_user_id=user.id,
-        scope_type=ScopeType.personal,
-        scope_id=user.id,
         key="e.md",
         content_hash="h",
         version=1,

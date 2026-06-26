@@ -5,14 +5,12 @@ import psycopg
 import pytest
 from alembic import command
 from alembic.config import Config
-from odin.models import DocState, Document, Membership, Org, Role, ScopeType, User
+from odin.models import DocState, Document, User
 from sqlalchemy.exc import IntegrityError
 
 BACKEND_DIR = Path(__file__).resolve().parents[1]
 TABLES = {
     "users",
-    "orgs",
-    "memberships",
     "access_tokens",
     "documents",
     "chunks",
@@ -48,21 +46,7 @@ def test_upgrade_downgrade_round_trip(test_db_url):
     assert TABLES <= asyncio.run(_public_tables(test_db_url))
 
 
-async def test_membership_unique_constraint(db_session):
-    user = User(email="dup@example.com")
-    org = Org(name="Dup Org")
-    db_session.add_all([user, org])
-    await db_session.flush()
-
-    db_session.add(Membership(user_id=user.id, org_id=org.id, role=Role.admin))
-    await db_session.flush()
-
-    db_session.add(Membership(user_id=user.id, org_id=org.id, role=Role.editor))
-    with pytest.raises(IntegrityError):
-        await db_session.flush()
-
-
-async def test_active_key_is_unique_per_scope(db_session):
+async def test_active_key_is_unique_per_owner(db_session):
     user = User(email="key@example.com")
     db_session.add(user)
     await db_session.flush()
@@ -70,8 +54,6 @@ async def test_active_key_is_unique_per_scope(db_session):
     def _doc(content_hash: str, version: int) -> Document:
         return Document(
             owner_user_id=user.id,
-            scope_type=ScopeType.personal,
-            scope_id=user.id,
             key="dup.md",
             content_hash=content_hash,
             version=version,

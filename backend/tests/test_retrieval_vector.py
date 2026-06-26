@@ -1,8 +1,7 @@
 import uuid
 
-from odin.models import Chunk, DocState, Document, Embedding, ScopeType, User
+from odin.models import Chunk, DocState, Document, Embedding, User
 from odin.services import embedding, retrieval
-from odin.tenancy import resolve_scope_set
 
 
 def _vec(pairs: dict[int, float]) -> list[float]:
@@ -15,8 +14,6 @@ def _vec(pairs: dict[int, float]) -> list[float]:
 async def _seed_doc(session, user, vectors):
     doc = Document(
         owner_user_id=user.id,
-        scope_type=ScopeType.personal,
-        scope_id=user.id,
         key=f"r-{uuid.uuid4()}.md",
         content_hash=uuid.uuid4().hex,
         version=1,
@@ -55,11 +52,8 @@ async def test_ranks_by_similarity_and_honors_top_k(db_session, monkeypatch):
 
     monkeypatch.setattr(embedding, "embed_texts", fake_q)
 
-    scope_set = await resolve_scope_set(db_session, user)
-    hits = await retrieval.search(db_session, scope_set, "q", None, top_k=2)
+    hits = await retrieval.search(db_session, user.id, "q", top_k=2)
 
     assert [h.chunk_id for h in hits] == [a.id, c.id]
     assert hits[0].score >= hits[1].score
-    assert hits[0].scope_type == "personal"
-    assert hits[0].scope_id == user.id
     assert hits[0].text == "chunk 0"

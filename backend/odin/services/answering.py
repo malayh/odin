@@ -1,4 +1,4 @@
-"""RAG ask: retrieve, rerank, assemble scope-filtered context, generate a cited answer."""
+"""RAG ask: retrieve, rerank, assemble context, generate a cited answer."""
 
 import uuid
 from dataclasses import dataclass
@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from odin.config import get_settings
 from odin.services import llm, reranker, retrieval
-from odin.tenancy import Scope, ScopeSet
 
 _REFUSAL = "I don't know — that is not in your knowledge base."
 
@@ -24,8 +23,6 @@ _SYSTEM = (
 @dataclass(frozen=True)
 class Citation:
     document_id: uuid.UUID
-    scope_type: str
-    scope_id: uuid.UUID
 
 
 @dataclass(frozen=True)
@@ -43,17 +40,17 @@ class _LlmAnswer(BaseModel):
 
 def _assemble(
     hits: list[retrieval.Hit], expansion: retrieval.Expansion, budget: int
-) -> tuple[str, dict[str, tuple[str, uuid.UUID]]]:
+) -> tuple[str, set[str]]:
     blocks: list[str] = []
-    allow: dict[str, tuple[str, uuid.UUID]] = {}
+    allow: set[str] = set()
     used = 0
     for h in hits:
-        block = f"[doc {h.document_id} | {h.scope_type}]\n{h.text}"
+        block = f"[doc {h.document_id}]\n{h.text}"
         if blocks and used + len(block) > budget:
             break
         blocks.append(block)
         used += len(block)
-        allow[str(h.document_id)] = (h.scope_type, h.scope_id)
+        allow.add(str(h.document_id))
     context = "\n\n".join(blocks)
     facts = [f"{r.subject_key} {r.predicate} {r.object_key}" for r in expansion.relationships]
     if facts:
@@ -73,15 +70,14 @@ def _prompt(question: str, context: str, history: list[dict[str, str]] | None) -
 
 async def answer(
     session: AsyncSession,
-    scope_set: ScopeSet,
+    owner: uuid.UUID,
     question: str,
-    only: Scope | None = None,
     *,
     history: list[dict[str, str]] | None = None,
 ) -> Answer:
     settings = get_settings()
     hits, expansion = await retrieval.search_graph(
-        session, scope_set, question, only, settings.ask_top_k
+        session, owner, question, settings.ask_top_k
     )
     ranked = await reranker.rerank(question, hits)
     context, allow = _assemble(
@@ -93,11 +89,7 @@ async def answer(
         _prompt(question, context, history), _LlmAnswer, system=_SYSTEM
     )
     citations = [
-        Citation(
-            document_id=uuid.UUID(doc_id),
-            scope_type=allow[doc_id][0],
-            scope_id=allow[doc_id][1],
-        )
+        Citation(document_id=uuid.UUID(doc_id))
         for doc_id in dict.fromkeys(result.used_document_ids)
         if doc_id in allow
     ]

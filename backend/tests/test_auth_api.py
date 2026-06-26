@@ -9,7 +9,6 @@ async def test_whoami_returns_principal(client, admin):
     body = r.json()
     assert body["user"]["email"] == "admin@example.com"
     assert body["user"]["is_initial_admin"] is True
-    assert any(scope["type"] == "personal" for scope in body["scopes"])
 
 
 async def test_missing_token_is_401(client):

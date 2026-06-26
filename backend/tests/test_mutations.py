@@ -1,9 +1,8 @@
 import uuid
 from types import SimpleNamespace
 
-from odin.models import GraphMutation, ScopeType
+from odin.models import GraphMutation
 from odin.services import graph, mutations
-from odin.tenancy import ScopeSet
 from sqlalchemy import select
 
 
@@ -51,7 +50,7 @@ async def test_replay_is_ordered(db_session):
 
 async def test_undo_a_merge_restores_absorbed_entity(worker_db):
     uid = uuid.uuid4()
-    d = SimpleNamespace(id=uuid.uuid4(), scope_type=ScopeType.personal, scope_id=uid)
+    d = SimpleNamespace(id=uuid.uuid4(), owner_user_id=uid)
     async with worker_db() as s:
         await graph.upsert_document(s, d)
         await graph.upsert_entity(s, "person:robert", "Robert", "Person")
@@ -68,8 +67,7 @@ async def test_undo_a_merge_restores_absorbed_entity(worker_db):
                 "absorbed_type": "Person",
                 "source_doc_id": str(d.id),
                 "alias": "Bob",
-                "scope_type": "personal",
-                "scope_id": str(uid),
+                "owner": str(uid),
                 "confidence": 0.9,
                 "model": "m",
             },
@@ -81,9 +79,8 @@ async def test_undo_a_merge_restores_absorbed_entity(worker_db):
         await s.commit()
 
     async with worker_db() as s:
-        ss = ScopeSet(user_id=uid, roles={})
-        bob = await graph.read_entity(s, ss, "person:bob")
-        robert = await graph.read_entity(s, ss, "person:robert")
+        bob = await graph.read_entity(s, uid, "person:bob")
+        robert = await graph.read_entity(s, uid, "person:robert")
 
     assert bob is not None
     assert bob["aliases"] == ["Bob"]

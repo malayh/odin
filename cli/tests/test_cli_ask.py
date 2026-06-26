@@ -16,7 +16,7 @@ class _FakeClient:
     def __exit__(self, *exc):
         return False
 
-    def ask(self, question, scope, history=None):
+    def ask(self, question, history=None):
         return self._data["ask"]
 
 
@@ -29,11 +29,7 @@ _GROUNDED = {
     "answer": "Mara founded Helios.",
     "confident": True,
     "citations": [
-        {
-            "document_id": "11111111-1111-1111-1111-111111111111",
-            "scope_type": "personal",
-            "scope_id": "22222222-2222-2222-2222-222222222222",
-        }
+        {"document_id": "11111111-1111-1111-1111-111111111111"}
     ],
 }
 

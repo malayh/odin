@@ -64,36 +64,24 @@ class Client:
             "POST", "/admin/users", json={"email": email, "display_name": display_name}
         )
 
-    def create_org(self, name: str) -> Any:
-        return self._request("POST", "/admin/orgs", json={"name": name})
-
-    def add_member(self, org_id: str, user_id: str, role: str) -> Any:
-        return self._request(
-            "POST", f"/admin/orgs/{org_id}/members", json={"user_id": user_id, "role": role}
-        )
-
     def create_token(self, user_id: str, name: str | None = None) -> Any:
         return self._request("POST", f"/admin/users/{user_id}/tokens", json={"name": name})
 
-    def ingest(self, path: Path, key: str, scope: str) -> Any:
+    def ingest(self, path: Path, key: str) -> Any:
         with path.open("rb") as fh:
             files = {"file": (path.name, fh)}
-            data = {"key": key, "scope": scope}
+            data = {"key": key}
             return self._request("POST", "/ingest", files=files, data=data)
 
     def get_job(self, job_id: str) -> Any:
         return self._request("GET", f"/jobs/{job_id}")
 
-    def search(self, query: str, scope: str | None, top_k: int) -> Any:
+    def search(self, query: str, top_k: int) -> Any:
         payload: dict[str, Any] = {"query": query, "top_k": top_k}
-        if scope:
-            payload["scope"] = scope
         return self._request("POST", "/search", json=payload)
 
-    def ask(self, question: str, scope: str | None, history: list[Any] | None = None) -> Any:
+    def ask(self, question: str, history: list[Any] | None = None) -> Any:
         payload: dict[str, Any] = {"question": question}
-        if scope:
-            payload["scope"] = scope
         if history:
             payload["history"] = history
         return self._request("POST", "/ask", json=payload)

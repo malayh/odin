@@ -1,4 +1,4 @@
-"""Knowledge graph access over Apache AGE: nodes/edges carrying scope + provenance + confidence."""
+"""Knowledge graph access over Apache AGE: nodes/edges carrying owner + provenance + confidence."""
 
 import uuid
 from datetime import UTC, datetime
@@ -9,9 +9,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from odin.config import get_settings
 from odin.graphdb import cypher
-from odin.models import Document, GraphMutation, ScopeType
+from odin.models import Document, GraphMutation
 from odin.services import mutations, ontology
-from odin.tenancy import Scope, ScopeSet, can_read
 
 
 async def _cy(
@@ -27,27 +26,16 @@ def _now() -> str:
     return datetime.now(UTC).isoformat()
 
 
-def _scope_clause(scope_set: ScopeSet, var: str) -> tuple[str, dict[str, Any]]:
-    parts = [f"({var}.scope_type = 'personal' AND {var}.scope_id = $sc_uid)"]
-    params: dict[str, Any] = {"sc_uid": str(scope_set.user_id)}
-    if scope_set.org_ids:
-        parts.append(f"({var}.scope_type = 'org' AND {var}.scope_id IN $sc_orgs)")
-        params["sc_orgs"] = [str(o) for o in scope_set.org_ids]
-    return "(" + " OR ".join(parts) + ")", params
+def _owner_clause(owner: uuid.UUID, var: str) -> tuple[str, dict[str, Any]]:
+    return f"({var}.owner = $sc_uid)", {"sc_uid": str(owner)}
 
 
 async def upsert_document(session: AsyncSession, doc: Document) -> None:
     await _cy(
         session,
         "MERGE (d:Document {doc_id:$doc_id}) "
-        "SET d.scope_type=$scope_type, d.scope_id=$scope_id, "
-        "d.created_at=coalesce(d.created_at, $now)",
-        {
-            "doc_id": str(doc.id),
-            "scope_type": doc.scope_type.value,
-            "scope_id": str(doc.scope_id),
-            "now": _now(),
-        },
+        "SET d.owner=$owner, d.created_at=coalesce(d.created_at, $now)",
+        {"doc_id": str(doc.id), "owner": str(doc.owner_user_id), "now": _now()},
     )
 
 
@@ -72,14 +60,13 @@ async def add_mention(
     await _cy(
         session,
         "MATCH (d:Document {doc_id:$doc_id}), (e:Entity {key:$key}) "
-        "CREATE (d)-[:MENTIONS {scope_type:$scope_type, scope_id:$scope_id, "
+        "CREATE (d)-[:MENTIONS {owner:$owner, "
         "source_doc_id:$doc_id, alias:$alias, origin:$origin, confidence:$confidence, "
         "method:'extract', model:$model, created_at:$now}]->(e)",
         {
             "doc_id": str(doc.id),
             "key": entity_key,
-            "scope_type": doc.scope_type.value,
-            "scope_id": str(doc.scope_id),
+            "owner": str(doc.owner_user_id),
             "alias": alias,
             "origin": origin,
             "confidence": confidence,
@@ -102,15 +89,14 @@ async def add_relationship(
     await _cy(
         session,
         "MATCH (s:Entity {key:$subj}), (o:Entity {key:$obj}) "
-        "CREATE (s)-[:REL {predicate:$predicate, scope_type:$scope_type, scope_id:$scope_id, "
+        "CREATE (s)-[:REL {predicate:$predicate, owner:$owner, "
         "source_doc_id:$doc_id, origin:$origin, confidence:$confidence, method:'extract', "
         "model:$model, created_at:$now}]->(o)",
         {
             "subj": subject_key,
             "obj": object_key,
             "predicate": predicate,
-            "scope_type": doc.scope_type.value,
-            "scope_id": str(doc.scope_id),
+            "owner": str(doc.owner_user_id),
             "doc_id": str(doc.id),
             "origin": origin,
             "confidence": confidence,
@@ -189,40 +175,40 @@ async def upsert(
         )
 
 
-async def list_scope_entities(
-    session: AsyncSession, scope_type: str, scope_id: str
+async def list_owner_entities(
+    session: AsyncSession, owner: uuid.UUID
 ) -> list[tuple[str, str, str]]:
     rows = await _cy(
         session,
         "MATCH (:Document)-[m:MENTIONS]->(e:Entity) "
-        "WHERE m.scope_type=$scope_type AND m.scope_id=$scope_id "
+        "WHERE m.owner=$owner "
         "RETURN DISTINCT e.key, e.name, e.type",
-        {"scope_type": scope_type, "scope_id": scope_id},
+        {"owner": str(owner)},
         columns=("key", "name", "type"),
     )
     return [(r[0], r[1], r[2]) for r in rows]
 
 
-async def scope_entity_facts(
-    session: AsyncSession, scope_type: str, scope_id: str, keys: list[str]
+async def owner_entity_facts(
+    session: AsyncSession, owner: uuid.UUID, keys: list[str]
 ) -> list[tuple[str, str, str]]:
     if not keys:
         return []
     rows = await _cy(
         session,
         "MATCH (e:Entity)-[r:REL]->(o:Entity) "
-        "WHERE r.scope_type=$scope_type AND r.scope_id=$scope_id AND e.key IN $keys "
+        "WHERE r.owner=$owner AND e.key IN $keys "
         "RETURN e.key, r.predicate, o.name",
-        {"scope_type": scope_type, "scope_id": scope_id, "keys": keys},
+        {"owner": str(owner), "keys": keys},
         columns=("key", "predicate", "object"),
     )
     return [(r[0], r[1], r[2]) for r in rows]
 
 
 async def mentioned_entities(
-    session: AsyncSession, scope_set: ScopeSet, doc_ids: list[str]
+    session: AsyncSession, owner: uuid.UUID, doc_ids: list[str]
 ) -> list[tuple[str, str, str, str, float]]:
-    clause, params = _scope_clause(scope_set, "m")
+    clause, params = _owner_clause(owner, "m")
     params["doc_ids"] = doc_ids
     rows = await _cy(
         session,
@@ -237,9 +223,9 @@ async def mentioned_entities(
 
 
 async def entity_neighbors(
-    session: AsyncSession, scope_set: ScopeSet, keys: list[str]
+    session: AsyncSession, owner: uuid.UUID, keys: list[str]
 ) -> list[tuple[str, str, str, str, float]]:
-    clause, params = _scope_clause(scope_set, "r")
+    clause, params = _owner_clause(owner, "r")
     params["keys"] = keys
     rows = await _cy(
         session,
@@ -254,9 +240,9 @@ async def entity_neighbors(
 
 
 async def docs_for_entities(
-    session: AsyncSession, scope_set: ScopeSet, keys: list[str]
+    session: AsyncSession, owner: uuid.UUID, keys: list[str]
 ) -> list[tuple[str, str]]:
-    clause, params = _scope_clause(scope_set, "m")
+    clause, params = _owner_clause(owner, "m")
     params["keys"] = keys
     rows = await _cy(
         session,
@@ -270,7 +256,7 @@ async def docs_for_entities(
 
 
 async def read_entity(
-    session: AsyncSession, scope_set: ScopeSet, key: str
+    session: AsyncSession, owner: uuid.UUID, key: str
 ) -> dict[str, Any] | None:
     node = await _cy(
         session,
@@ -281,7 +267,7 @@ async def read_entity(
     if not node:
         return None
     name, type_ = node[0]
-    mclause, mparams = _scope_clause(scope_set, "m")
+    mclause, mparams = _owner_clause(owner, "m")
     mparams["key"] = key
     aliases = await _cy(
         session,
@@ -290,7 +276,7 @@ async def read_entity(
         mparams,
         columns=("alias",),
     )
-    rclause, rparams = _scope_clause(scope_set, "r")
+    rclause, rparams = _owner_clause(owner, "r")
     rparams["key"] = key
     rels = await _cy(
         session,
@@ -311,9 +297,9 @@ async def read_entity(
 
 
 async def find_entities(
-    session: AsyncSession, scope_set: ScopeSet, q: str
+    session: AsyncSession, owner: uuid.UUID, q: str
 ) -> list[tuple[str, str, str]]:
-    clause, params = _scope_clause(scope_set, "m")
+    clause, params = _owner_clause(owner, "m")
     rows = await _cy(
         session,
         "MATCH (:Document)-[m:MENTIONS]->(e:Entity) "
@@ -331,32 +317,30 @@ async def find_entities(
 
 
 async def entity_history(
-    session: AsyncSession, scope_set: ScopeSet, key: str
+    session: AsyncSession, owner: uuid.UUID, key: str
 ) -> list[GraphMutation]:
     rows = await mutations.explain(session, entity_key=key)
     doc_ids = {
         p["source_doc_id"]
         for r in rows
-        if "scope_type" not in (p := r.payload) and "source_doc_id" in p
+        if "owner" not in (p := r.payload) and "source_doc_id" in p
     }
-    doc_scopes: dict[str, Scope] = {}
+    doc_owners: dict[str, uuid.UUID] = {}
     if doc_ids:
         result = await session.execute(
-            select(Document.id, Document.scope_type, Document.scope_id).where(
+            select(Document.id, Document.owner_user_id).where(
                 Document.id.in_({uuid.UUID(d) for d in doc_ids})
             )
         )
-        doc_scopes = {str(did): Scope(st, sid) for did, st, sid in result}
+        doc_owners = {str(did): oid for did, oid in result}
     visible: list[GraphMutation] = []
     for r in rows:
         p = r.payload
-        if "scope_type" in p and "scope_id" in p:
-            scope = Scope(ScopeType(p["scope_type"]), uuid.UUID(p["scope_id"]))
-            if can_read(scope_set, scope):
+        if "owner" in p:
+            if p["owner"] == str(owner):
                 visible.append(r)
         elif "source_doc_id" in p:
-            doc_scope = doc_scopes.get(p["source_doc_id"])
-            if doc_scope is not None and can_read(scope_set, doc_scope):
+            if doc_owners.get(p["source_doc_id"]) == owner:
                 visible.append(r)
         else:
             visible.append(r)
@@ -382,14 +366,13 @@ async def apply_inverse(session: AsyncSession, op: str, payload: dict[str, Any])
     await _cy(
         session,
         "MATCH (d:Document {doc_id:$doc_id}), (b:Entity {key:$absorbed}) "
-        "CREATE (d)-[:MENTIONS {scope_type:$scope_type, scope_id:$scope_id, "
+        "CREATE (d)-[:MENTIONS {owner:$owner, "
         "source_doc_id:$doc_id, alias:$alias, origin:'extracted', "
         "confidence:$confidence, method:'extract', model:$model, created_at:$now}]->(b)",
         {
             "doc_id": payload["source_doc_id"],
             "absorbed": payload["absorbed_key"],
-            "scope_type": payload["scope_type"],
-            "scope_id": payload["scope_id"],
+            "owner": payload["owner"],
             "alias": payload["alias"],
             "confidence": payload.get("confidence"),
             "model": payload.get("model", ""),
@@ -411,23 +394,23 @@ async def merge_nodes(
     mentions = await _cy(
         session,
         "MATCH (d:Document)-[m:MENTIONS]->(:Entity {key:$absorbed}) "
-        "RETURN d.doc_id, m.scope_type, m.scope_id, m.source_doc_id, m.alias, m.origin, "
+        "RETURN d.doc_id, m.owner, m.source_doc_id, m.alias, m.origin, "
         "m.confidence, m.method, m.model, m.created_at",
         {"absorbed": absorbed_key},
         columns=(
-            "doc_id", "scope_type", "scope_id", "source_doc_id", "alias", "origin",
+            "doc_id", "owner", "source_doc_id", "alias", "origin",
             "confidence", "method", "model", "created_at",
         ),
     )
-    for d_id, st, sid, sdid, alias, origin, conf, method, model, created in mentions:
+    for d_id, owner, sdid, alias, origin, conf, method, model, created in mentions:
         await _cy(
             session,
             "MATCH (d:Document {doc_id:$doc_id}), (c:Entity {key:$canonical}) "
-            "CREATE (d)-[:MENTIONS {scope_type:$st, scope_id:$sid, source_doc_id:$sdid, "
+            "CREATE (d)-[:MENTIONS {owner:$owner, source_doc_id:$sdid, "
             "alias:$alias, origin:$origin, confidence:$conf, method:$method, model:$model, "
             "created_at:$created}]->(c)",
             {
-                "doc_id": d_id, "canonical": canonical_key, "st": st, "sid": sid, "sdid": sdid,
+                "doc_id": d_id, "canonical": canonical_key, "owner": owner, "sdid": sdid,
                 "alias": alias, "origin": origin, "conf": conf, "method": method, "model": model,
                 "created": created,
             },
@@ -436,11 +419,11 @@ async def merge_nodes(
         session,
         "MATCH (:Entity {key:$absorbed})-[r:REL]->(o:Entity) "
         "WHERE o.key <> $absorbed AND o.key <> $canonical "
-        "RETURN o.key, r.predicate, r.scope_type, r.scope_id, r.source_doc_id, r.origin, "
+        "RETURN o.key, r.predicate, r.owner, r.source_doc_id, r.origin, "
         "r.confidence, r.method, r.model, r.created_at",
         {"absorbed": absorbed_key, "canonical": canonical_key},
         columns=(
-            "other", "predicate", "scope_type", "scope_id", "source_doc_id", "origin",
+            "other", "predicate", "owner", "source_doc_id", "origin",
             "confidence", "method", "model", "created_at",
         ),
     )
@@ -448,11 +431,11 @@ async def merge_nodes(
         session,
         "MATCH (s:Entity)-[r:REL]->(:Entity {key:$absorbed}) "
         "WHERE s.key <> $absorbed AND s.key <> $canonical "
-        "RETURN s.key, r.predicate, r.scope_type, r.scope_id, r.source_doc_id, r.origin, "
+        "RETURN s.key, r.predicate, r.owner, r.source_doc_id, r.origin, "
         "r.confidence, r.method, r.model, r.created_at",
         {"absorbed": absorbed_key, "canonical": canonical_key},
         columns=(
-            "other", "predicate", "scope_type", "scope_id", "source_doc_id", "origin",
+            "other", "predicate", "owner", "source_doc_id", "origin",
             "confidence", "method", "model", "created_at",
         ),
     )
@@ -462,16 +445,16 @@ async def merge_nodes(
             if direction == "out"
             else "MATCH (c:Entity {key:$canonical}), (e:Entity {key:$other}) CREATE (e)-[:REL "
         )
-        for other, pred, st, sid, sdid, origin, conf, method, model, created in rows:
+        for other, pred, owner, sdid, origin, conf, method, model, created in rows:
             await _cy(
                 session,
                 pattern
-                + "{predicate:$predicate, scope_type:$st, scope_id:$sid, source_doc_id:$sdid, "
+                + "{predicate:$predicate, owner:$owner, source_doc_id:$sdid, "
                 "origin:$origin, confidence:$conf, method:$method, model:$model, "
                 "created_at:$created}]->" + ("(e)" if direction == "out" else "(c)"),
                 {
-                    "canonical": canonical_key, "other": other, "predicate": pred, "st": st,
-                    "sid": sid, "sdid": sdid, "origin": origin, "conf": conf, "method": method,
+                    "canonical": canonical_key, "other": other, "predicate": pred, "owner": owner,
+                    "sdid": sdid, "origin": origin, "conf": conf, "method": method,
                     "model": model, "created": created,
                 },
             )

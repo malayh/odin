@@ -1,6 +1,6 @@
 import uuid
 
-from odin.models import Chunk, DocState, Document, ScopeType, User
+from odin.models import Chunk, DocState, Document, User
 from odin.services import extraction
 from odin.services.extraction import Extracted, ExtractedEntity, ExtractedRelation
 
@@ -11,8 +11,6 @@ async def _doc_with_chunks(session, n_chunks):
     await session.flush()
     doc = Document(
         owner_user_id=user.id,
-        scope_type=ScopeType.personal,
-        scope_id=user.id,
         key="ex.md",
         content_hash=uuid.uuid4().hex,
         state=DocState.pending,

@@ -14,8 +14,6 @@ def _hit(text):
         section_meta=None,
         char_start=0,
         char_end=len(text),
-        scope_type="personal",
-        scope_id=uuid.uuid4(),
         score=0.5,
     )
 

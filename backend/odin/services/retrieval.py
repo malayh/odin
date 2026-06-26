@@ -1,4 +1,4 @@
-"""Retrieval: scope-filtered vector recall over chunk embeddings."""
+"""Retrieval: owner-filtered vector recall over chunk embeddings."""
 
 import uuid
 from dataclasses import dataclass
@@ -10,7 +10,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from odin.config import get_settings
 from odin.models import Chunk, DocState, Document, Embedding
 from odin.services import embedding, graph
-from odin.tenancy import Scope, ScopeSet, scope_filter
+from odin.tenancy import owner_filter
 
 
 @dataclass(frozen=True)
@@ -22,16 +22,13 @@ class Hit:
     section_meta: dict[str, Any] | None
     char_start: int
     char_end: int
-    scope_type: str
-    scope_id: uuid.UUID
     score: float
 
 
 async def search(
     session: AsyncSession,
-    scope_set: ScopeSet,
+    owner: uuid.UUID,
     query: str,
-    only: Scope | None = None,
     top_k: int = 10,
 ) -> list[Hit]:
     qvec = (await embedding.embed_texts([query]))[0]
@@ -46,15 +43,13 @@ async def search(
                 Chunk.section_meta,
                 Chunk.char_start,
                 Chunk.char_end,
-                Document.scope_type,
-                Document.scope_id,
                 distance.label("distance"),
             )
             .select_from(Embedding)
             .join(Chunk, Chunk.id == Embedding.chunk_id)
             .join(Document, Document.id == Chunk.document_id)
             .where(
-                scope_filter(scope_set, only),
+                owner_filter(owner),
                 Document.supersedes_id.is_(None),
                 Document.state != DocState.soft_deleted,
             )
@@ -71,9 +66,7 @@ async def search(
             section_meta=r[4],
             char_start=r[5],
             char_end=r[6],
-            scope_type=r[7].value,
-            scope_id=r[8],
-            score=1.0 - float(r[9]),
+            score=1.0 - float(r[7]),
         )
         for r in rows
     ]
@@ -114,7 +107,7 @@ def _default_fanout() -> Fanout:
 
 async def expand(
     session: AsyncSession,
-    scope_set: ScopeSet,
+    owner: uuid.UUID,
     seed_document_ids: list[uuid.UUID],
     *,
     fanout: Fanout | None = None,
@@ -127,7 +120,7 @@ async def expand(
     entities: dict[str, EntityRef] = {}
     per_doc: dict[str, set[str]] = {}
     for doc_id, key, name, type_, _conf in await graph.mentioned_entities(
-        session, scope_set, seeds
+        session, owner, seeds
     ):
         seen = per_doc.setdefault(doc_id, set())
         if key not in entities and len(seen) >= fanout.entities_per_doc:
@@ -138,7 +131,7 @@ async def expand(
     relationships: list[RelRef] = []
     per_entity: dict[str, int] = {}
     for subj, pred, obj, src, _conf in await graph.entity_neighbors(
-        session, scope_set, list(entities)
+        session, owner, list(entities)
     ):
         if per_entity.get(subj, 0) >= fanout.neighbors_per_entity:
             continue
@@ -152,7 +145,7 @@ async def expand(
     linked = sorted(
         {
             uuid.UUID(doc_id)
-            for _key, doc_id in await graph.docs_for_entities(session, scope_set, reach)
+            for _key, doc_id in await graph.docs_for_entities(session, owner, reach)
             if doc_id not in seed_set
         }
     )
@@ -165,17 +158,16 @@ async def expand(
 
 async def search_graph(
     session: AsyncSession,
-    scope_set: ScopeSet,
+    owner: uuid.UUID,
     query: str,
-    only: Scope | None = None,
     top_k: int = 10,
 ) -> tuple[list[Hit], Expansion]:
-    hits = await search(session, scope_set, query, only, top_k)
+    hits = await search(session, owner, query, top_k)
     seeds: list[uuid.UUID] = []
     seen: set[uuid.UUID] = set()
     for h in hits:
         if h.document_id not in seen:
             seen.add(h.document_id)
             seeds.append(h.document_id)
-    expansion = await expand(session, scope_set, seeds)
+    expansion = await expand(session, owner, seeds)
     return hits, expansion

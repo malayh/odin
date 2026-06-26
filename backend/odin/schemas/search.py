@@ -8,7 +8,6 @@ from pydantic import BaseModel
 
 class SearchIn(BaseModel):
     query: str
-    scope: str | None = None
     top_k: int = 10
 
 
@@ -20,8 +19,6 @@ class SearchHit(BaseModel):
     section_meta: dict[str, Any] | None = None
     char_start: int
     char_end: int
-    scope_type: str
-    scope_id: uuid.UUID
     score: float
 
 

@@ -1,13 +1,11 @@
 import uuid
 from types import SimpleNamespace
 
-from odin.models import ScopeType
 from odin.services import graph, retrieval
-from odin.tenancy import ScopeSet
 
 
-def _doc(scope_id):
-    return SimpleNamespace(id=uuid.uuid4(), scope_type=ScopeType.personal, scope_id=scope_id)
+def _doc(owner):
+    return SimpleNamespace(id=uuid.uuid4(), owner_user_id=owner)
 
 
 def _ent(name, type_):
@@ -24,7 +22,6 @@ def _ex(entities, relations):
 
 async def test_expand_pulls_entities_relationships_and_linked_docs(worker_db):
     user = uuid.uuid4()
-    scope_set = ScopeSet(user_id=user, roles={})
     doc_a = _doc(user)
     doc_b = _doc(user)
 
@@ -52,7 +49,7 @@ async def test_expand_pulls_entities_relationships_and_linked_docs(worker_db):
         await s.commit()
 
     async with worker_db() as s:
-        exp = await retrieval.expand(s, scope_set, [doc_a.id])
+        exp = await retrieval.expand(s, user, [doc_a.id])
 
     assert {e.key for e in exp.entities} == {"person:mara vance", "org:helios"}
     rels = {(r.predicate, r.object_key) for r in exp.relationships}
@@ -64,7 +61,6 @@ async def test_expand_pulls_entities_relationships_and_linked_docs(worker_db):
 
 async def test_expand_respects_fanout_caps(worker_db):
     user = uuid.uuid4()
-    scope_set = ScopeSet(user_id=user, roles={})
     doc = _doc(user)
 
     async with worker_db() as s:
@@ -76,7 +72,7 @@ async def test_expand_respects_fanout_caps(worker_db):
     async with worker_db() as s:
         exp = await retrieval.expand(
             s,
-            scope_set,
+            user,
             [doc.id],
             fanout=retrieval.Fanout(entities_per_doc=2, neighbors_per_entity=2),
         )

@@ -1,13 +1,11 @@
 import uuid
 from types import SimpleNamespace
 
-from odin.models import ScopeType
 from odin.services import graph
-from odin.tenancy import ScopeSet
 
 
-def _doc(scope_type, scope_id):
-    return SimpleNamespace(id=uuid.uuid4(), scope_type=scope_type, scope_id=scope_id)
+def _doc(owner):
+    return SimpleNamespace(id=uuid.uuid4(), owner_user_id=owner)
 
 
 def _ent(name, type_, conf=0.9):
@@ -24,13 +22,13 @@ def _extracted(entities, relations):
 
 async def test_upsert_persists_provenance_and_scope(worker_db):
     uid = uuid.uuid4()
-    d = _doc(ScopeType.personal, uid)
+    d = _doc(uid)
     ex = _extracted([_ent("Acme", "Org"), _ent("Bob", "Person")], [_rel("Bob", "works at", "Acme")])
     async with worker_db() as s:
         await graph.upsert(s, d, ex, {}, "m1")
         await s.commit()
     async with worker_db() as s:
-        view = await graph.read_entity(s, ScopeSet(user_id=uid, roles={}), "person:bob")
+        view = await graph.read_entity(s, uid, "person:bob")
     assert view["name"] == "Bob"
     assert view["type"] == "Person"
     assert view["aliases"] == ["Bob"]
@@ -41,7 +39,7 @@ async def test_upsert_persists_provenance_and_scope(worker_db):
 
 async def test_reingest_replaces_contributions_idempotently(worker_db):
     uid = uuid.uuid4()
-    d = _doc(ScopeType.personal, uid)
+    d = _doc(uid)
     ex = _extracted([_ent("Acme", "Org"), _ent("Bob", "Person")], [_rel("Bob", "works at", "Acme")])
 
     async def _counts():

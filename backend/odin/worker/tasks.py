@@ -95,11 +95,9 @@ async def _pipeline(document_id: uuid.UUID) -> None:
         await session.flush()
         await embedding.embed_chunks(session, document_id)
 
-        scope_type = doc.scope_type.value
-        scope_id = str(doc.scope_id)
         extracted = await extraction.extract(session, document_id)
         merges = await resolution.resolve(
-            session, extracted, scope_type, scope_id, str(document_id)
+            session, extracted, doc.owner_user_id, str(document_id)
         )
         await graph.delete_document_contributions(session, str(document_id))
         await graph.upsert(session, doc, extracted, merges, settings.answer_model)

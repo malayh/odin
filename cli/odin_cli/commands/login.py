@@ -13,10 +13,9 @@ app = typer.Typer(no_args_is_help=True, help="Authenticate to an Odin server.")
 def login(
     token: str = typer.Option(..., "--token", "-t", help="Personal access token."),
     server: str = typer.Option(DEFAULT_SERVER, "--server", "-s", help="Odin server URL."),
-    scope: str = typer.Option("personal", "--scope", help="Default scope for commands."),
     json_out: bool = typer.Option(False, "--json", help="Emit JSON."),
 ) -> None:
-    cfg = Config(server_url=server, token=token, default_scope=scope)
+    cfg = Config(server_url=server, token=token)
     try:
         with Client(cfg) as client:
             me = client.whoami()

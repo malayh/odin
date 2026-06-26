@@ -2,7 +2,7 @@ import uuid
 from types import SimpleNamespace
 from urllib.parse import quote
 
-from odin.models import Document, ScopeType, User
+from odin.models import Document, User
 from odin.services import graph
 
 
@@ -18,11 +18,9 @@ def _ex(entities, relations):
     return SimpleNamespace(entities=entities, relations=relations)
 
 
-async def _seed_doc(session, owner_id, scope_type, scope_id):
+async def _seed_doc(session, owner_id):
     doc = Document(
         owner_user_id=owner_id,
-        scope_type=scope_type,
-        scope_id=scope_id,
         key=f"{uuid.uuid4().hex}.md",
         content_hash=uuid.uuid4().hex,
     )
@@ -34,7 +32,7 @@ async def _seed_doc(session, owner_id, scope_type, scope_id):
 async def test_find_and_read_entity(client, admin, db_session):
     user, token = admin
     client.headers["Authorization"] = f"Bearer {token}"
-    doc = await _seed_doc(db_session, user.id, ScopeType.personal, user.id)
+    doc = await _seed_doc(db_session, user.id)
     await graph.upsert(
         db_session,
         doc,
@@ -66,15 +64,15 @@ async def test_find_and_read_entity(client, admin, db_session):
     assert r.status_code == 404
 
 
-async def test_history_excludes_other_scope_provenance(client, admin, db_session):
+async def test_history_excludes_other_users_provenance(client, admin, db_session):
     user_a, token = admin
     client.headers["Authorization"] = f"Bearer {token}"
     user_b = User(email="iso-b@example.com")
     db_session.add(user_b)
     await db_session.flush()
 
-    doc_a = await _seed_doc(db_session, user_a.id, ScopeType.personal, user_a.id)
-    doc_b = await _seed_doc(db_session, user_b.id, ScopeType.personal, user_b.id)
+    doc_a = await _seed_doc(db_session, user_a.id)
+    doc_b = await _seed_doc(db_session, user_b.id)
     await graph.upsert(
         db_session,
         doc_a,

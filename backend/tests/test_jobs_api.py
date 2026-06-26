@@ -3,7 +3,7 @@ import uuid
 import pytest
 from odin.services import blobs
 from odin.services.auth import issue_token
-from odin.services.orgs import create_user
+from odin.services.users import create_user
 
 
 @pytest.fixture(autouse=True)
@@ -22,7 +22,7 @@ async def _ingest(client, token, key="a.md"):
     r = await client.post(
         "/ingest",
         headers=_bearer(token),
-        data={"key": key, "scope": "personal"},
+        data={"key": key},
         files={"file": (key, b"hi there", "text/markdown")},
     )
     return r.json()["job_id"]

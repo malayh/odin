@@ -21,7 +21,6 @@ def config_path() -> Path:
 class Config:
     server_url: str = DEFAULT_SERVER
     token: str | None = None
-    default_scope: str = "personal"
 
 
 def load() -> Config:
@@ -32,7 +31,6 @@ def load() -> Config:
     return Config(
         server_url=data.get("server_url", DEFAULT_SERVER),
         token=data.get("token"),
-        default_scope=data.get("default_scope", "personal"),
     )
 
 

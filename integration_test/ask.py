@@ -31,19 +31,16 @@ from typing import Any
 
 import httpx
 from odin.db import SessionLocal
-from odin.models import Org
 from odin.seed import seed_admin
-from sqlalchemy import select
 
 HERE = Path(__file__).resolve().parent
 CONFIG = HERE / ".odin_config.yaml"
 RESULTS = HERE / "ask_results.json"
 SERVER = os.environ.get("ODIN_SERVER", "http://localhost:8000")
 ADMIN_EMAIL = "mara@helios.test"
-ORG_NAME = "Helios Robotics"
 ENV = {**os.environ, "ODIN_CONFIG": str(CONFIG)}
 ASK_TIMEOUT = 240.0
-ASK_CONCURRENCY = 5
+ASK_CONCURRENCY = 3
 
 CASES = [
     {
@@ -299,35 +296,19 @@ def preflight() -> None:
         )
 
 
-async def ensure_org() -> str:
-    try:
-        return cli("admin", "create-org", "--name", ORG_NAME, "--json")["id"]
-    except RuntimeError as e:
-        if "already exists" not in str(e):
-            raise
-    async with SessionLocal() as s:
-        org = await s.scalar(select(Org).where(Org.name == ORG_NAME))
-    return str(org.id)
-
-
-def resolve_scope(kind: str, org_id: str) -> str:
-    return f"org:{org_id}" if kind == "org" else kind
-
-
 async def ask_case(
-    http: httpx.AsyncClient, sem: asyncio.Semaphore, case: dict[str, Any], org_id: str
+    http: httpx.AsyncClient, sem: asyncio.Semaphore, case: dict[str, Any]
 ) -> dict[str, Any]:
-    scope = resolve_scope(case["scope"], org_id)
     record: dict[str, Any] = {
         "id": case["id"],
         "category": case["category"],
-        "scope": scope,
+        "scope": case["scope"],
         "question": case["question"],
         "expect": case["expect"],
     }
     try:
         async with sem:
-            resp = await http.post("/ask", json={"question": case["question"], "scope": scope})
+            resp = await http.post("/ask", json={"question": case["question"]})
             resp.raise_for_status()
             data = resp.json()
         record |= {
@@ -346,14 +327,12 @@ async def main() -> None:
     async with SessionLocal() as s:
         _, token = await seed_admin(s, ADMIN_EMAIL)
     cli("login", "--token", token, "--server", SERVER, "--json")
-    org_id = await ensure_org()
-    print(f"admin: {ADMIN_EMAIL}")
-    print(f"org:   {ORG_NAME} ({org_id})\n")
+    print(f"admin: {ADMIN_EMAIL}\n")
 
     headers = {"Authorization": f"Bearer {token}"}
     sem = asyncio.Semaphore(ASK_CONCURRENCY)
     async with httpx.AsyncClient(base_url=SERVER, headers=headers, timeout=ASK_TIMEOUT) as http:
-        records = await asyncio.gather(*(ask_case(http, sem, case, org_id) for case in CASES))
+        records = await asyncio.gather(*(ask_case(http, sem, case) for case in CASES))
 
     for record in records:
         cited = len(record["citations"])

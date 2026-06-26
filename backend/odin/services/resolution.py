@@ -1,6 +1,7 @@
 """Entity resolution: embedding + LLM canonicalization into canonical entities with aliases."""
 
 import math
+import uuid
 from collections import defaultdict
 
 from pydantic import BaseModel
@@ -50,8 +51,7 @@ async def _confirm_same(
 async def resolve(
     session: AsyncSession,
     extracted: Extracted,
-    scope_type: str,
-    scope_id: str,
+    owner: uuid.UUID,
     source_doc_id: str,
     *,
     threshold: float = _THRESHOLD,
@@ -64,7 +64,7 @@ async def resolve(
     new_key_set = set(new_keys)
     existing = [
         (k, n, t)
-        for k, n, t in await graph.list_scope_entities(session, scope_type, scope_id)
+        for k, n, t in await graph.list_owner_entities(session, owner)
         if k not in new_key_set
     ]
 
@@ -82,8 +82,8 @@ async def resolve(
         new_facts[rel.subject].append(f"{rel.predicate} {rel.object}")
         new_facts[rel.object].append(f"{rel.subject} {rel.predicate}")
     ex_facts: dict[str, list[str]] = defaultdict(list)
-    for k, pred, obj in await graph.scope_entity_facts(
-        session, scope_type, scope_id, [x[0] for x in existing]
+    for k, pred, obj in await graph.owner_entity_facts(
+        session, owner, [x[0] for x in existing]
     ):
         ex_facts[k].append(f"{pred} {obj}")
 
@@ -138,8 +138,7 @@ async def resolve(
                     "absorbed_type": new_types[m],
                     "source_doc_id": source_doc_id,
                     "alias": ents[m].name,
-                    "scope_type": scope_type,
-                    "scope_id": scope_id,
+                    "owner": str(owner),
                     "confidence": ents[m].confidence,
                     "model": "resolver",
                 },
@@ -150,12 +149,11 @@ async def resolve(
 
 async def consolidate(
     session: AsyncSession,
-    scope_type: str,
-    scope_id: str,
+    owner: uuid.UUID,
     *,
     threshold: float = _THRESHOLD,
 ) -> int:
-    entities = await graph.list_scope_entities(session, scope_type, scope_id)
+    entities = await graph.list_owner_entities(session, owner)
     if len(entities) < 2:
         return 0
     keys = [e[0] for e in entities]
@@ -164,7 +162,7 @@ async def consolidate(
     vecs = await embedding.embed_texts(names)
 
     facts: dict[str, list[str]] = defaultdict(list)
-    for k, pred, obj in await graph.scope_entity_facts(session, scope_type, scope_id, keys):
+    for k, pred, obj in await graph.owner_entity_facts(session, owner, keys):
         facts[k].append(f"{pred} {obj}")
 
     parent = list(range(len(keys)))
@@ -211,8 +209,7 @@ async def consolidate(
                     "absorbed_key": keys[m],
                     "absorbed_name": names[m],
                     "absorbed_type": types[m],
-                    "scope_type": scope_type,
-                    "scope_id": scope_id,
+                    "owner": str(owner),
                 },
             )
             merged += 1

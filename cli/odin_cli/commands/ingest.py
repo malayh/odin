@@ -37,11 +37,9 @@ def ingest(
         dir_okay=True,
         help="Directory to ingest.",
     ),
-    scope: str | None = typer.Option(None, "--scope", help="Target scope (default from config)."),
     json_out: bool = typer.Option(False, "--json"),
 ) -> None:
     cfg = require()
-    target = scope or cfg.default_scope
     files = sorted(
         p for p in directory.rglob("*") if p.is_file() and p.suffix.lower() in _SUPPORTED
     )
@@ -52,7 +50,7 @@ def ingest(
         for path in files:
             key = str(path.relative_to(directory))
             try:
-                res = client.ingest(path, key, target)
+                res = client.ingest(path, key)
                 state = _poll(client, res["job_id"]) if res.get("job_id") else "deduped"
             except ApiError as e:
                 res = {}

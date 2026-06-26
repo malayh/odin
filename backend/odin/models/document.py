@@ -7,18 +7,17 @@ from sqlalchemy import DateTime, Enum, ForeignKey, Index, Integer, String, func,
 from sqlalchemy.orm import Mapped, mapped_column
 
 from odin.db import Base
-from odin.models.enums import DocState, DocType, ScopeType
+from odin.models.enums import DocState, DocType
 
 
 class Document(Base):
     __tablename__ = "documents"
     __table_args__ = (
         Index("ix_documents_content_hash", "content_hash"),
-        Index("ix_documents_scope_state", "scope_type", "scope_id", "state"),
+        Index("ix_documents_owner_state", "owner_user_id", "state"),
         Index(
             "ix_documents_active_key",
-            "scope_type",
-            "scope_id",
+            "owner_user_id",
             "key",
             unique=True,
             postgresql_where=text("supersedes_id IS NULL"),
@@ -27,8 +26,6 @@ class Document(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     owner_user_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("users.id"))
-    scope_type: Mapped[ScopeType] = mapped_column(Enum(ScopeType, name="scope_type"))
-    scope_id: Mapped[uuid.UUID] = mapped_column()
     doc_type: Mapped[DocType] = mapped_column(
         Enum(DocType, name="doc_type"), default=DocType.source
     )

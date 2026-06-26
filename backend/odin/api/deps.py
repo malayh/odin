@@ -1,4 +1,4 @@
-"""FastAPI dependencies: DB session, current principal (from token), requested scope."""
+"""FastAPI dependencies: DB session, current principal (from token)."""
 
 from datetime import UTC, datetime
 from typing import Annotated
