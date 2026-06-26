@@ -1,14 +1,13 @@
-"""Job handlers: the ingestion pipeline stages, registered per job type."""
+"""The ingest task: runs the document ingestion pipeline for one job."""
 
-from collections.abc import Awaitable, Callable
-from typing import Any
+import uuid
 
 from sqlalchemy import delete
 
 from odin.config import get_settings
 from odin.db import SessionLocal
 from odin.errors import NotFoundError
-from odin.models import Chunk, DocState, Document
+from odin.models import Chunk, DocState, Document, Job, JobState
 from odin.services import (
     blobs,
     chunking,
@@ -18,23 +17,56 @@ from odin.services import (
     graph,
     resolution,
 )
-
-Handler = Callable[[dict[str, Any]], Awaitable[None]]
-
-HANDLERS: dict[str, Handler] = {}
+from odin.worker.app import app
 
 
-def register(job_type: str) -> Callable[[Handler], Handler]:
-    def deco(fn: Handler) -> Handler:
-        HANDLERS[job_type] = fn
-        return fn
+@app.task(name="ingest", retry=get_settings().worker_max_attempts - 1)
+async def ingest(job_id: str) -> None:
+    job_uuid = uuid.UUID(job_id)
+    document_id = await _begin(job_uuid)
+    if document_id is None:
+        return
+    try:
+        await _pipeline(document_id)
+        await _finish(job_uuid)
+    except Exception as e:
+        await _fail(job_uuid, repr(e))
+        raise
 
-    return deco
+
+async def _begin(job_id: uuid.UUID) -> uuid.UUID | None:
+    async with SessionLocal() as session, session.begin():
+        job = await session.get(Job, job_id)
+        if job is None:
+            return None
+        job.attempts += 1
+        job.state = JobState.running
+        return job.document_id
 
 
-@register("ingest")
-async def ingest_handler(job: dict[str, Any]) -> None:
-    document_id = job["document_id"]
+async def _finish(job_id: uuid.UUID) -> None:
+    async with SessionLocal() as session, session.begin():
+        job = await session.get(Job, job_id)
+        if job is not None:
+            job.state = JobState.done
+
+
+async def _fail(job_id: uuid.UUID, error: str) -> None:
+    async with SessionLocal() as session, session.begin():
+        job = await session.get(Job, job_id)
+        if job is None:
+            return
+        job.error = error
+        if job.attempts >= get_settings().worker_max_attempts:
+            job.state = JobState.failed
+            doc = await session.get(Document, job.document_id)
+            if doc is not None:
+                doc.state = DocState.failed
+        else:
+            job.state = JobState.pending
+
+
+async def _pipeline(document_id: uuid.UUID) -> None:
     settings = get_settings()
     async with SessionLocal() as session:
         doc = await session.get(Document, document_id)

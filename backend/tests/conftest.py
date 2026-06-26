@@ -4,7 +4,7 @@ import asyncio
 import os
 from pathlib import Path
 
-import asyncpg
+import psycopg
 import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
@@ -51,29 +51,31 @@ def test_db_url() -> str:
 
 
 async def _create_and_bootstrap(test_url: str) -> None:
-    raw = test_url.replace("+asyncpg", "")
+    raw = test_url.replace("+psycopg", "")
     base, _, name = raw.rpartition("/")
     graph = get_settings().age_graph
 
-    admin = await asyncpg.connect(f"{base}/postgres")
+    admin = await psycopg.AsyncConnection.connect(f"{base}/postgres", autocommit=True)
     try:
-        exists = await admin.fetchval("SELECT 1 FROM pg_database WHERE datname = $1", name)
+        cur = await admin.execute("SELECT 1 FROM pg_database WHERE datname = %s", (name,))
+        exists = await cur.fetchone() is not None
         if exists and os.getenv("ODIN_TEST_RECREATE"):
             await admin.execute(f'DROP DATABASE "{name}" WITH (FORCE)')
-            exists = None
+            exists = False
         if not exists:
             await admin.execute(f'CREATE DATABASE "{name}"')
     finally:
         await admin.close()
 
-    db = await asyncpg.connect(raw)
+    db = await psycopg.AsyncConnection.connect(raw, autocommit=True)
     try:
         await db.execute("CREATE EXTENSION IF NOT EXISTS vector")
         await db.execute("CREATE EXTENSION IF NOT EXISTS age")
         await db.execute("LOAD 'age'")
-        has_graph = await db.fetchval("SELECT 1 FROM ag_catalog.ag_graph WHERE name = $1", graph)
+        cur = await db.execute("SELECT 1 FROM ag_catalog.ag_graph WHERE name = %s", (graph,))
+        has_graph = await cur.fetchone() is not None
         if not has_graph:
-            await db.execute("SELECT ag_catalog.create_graph($1)", graph)
+            await db.execute("SELECT ag_catalog.create_graph(%s)", (graph,))
         await db.execute(f'ALTER DATABASE "{name}" SET search_path = public, ag_catalog')
     finally:
         await db.close()
@@ -144,13 +146,11 @@ async def admin(db_session: AsyncSession):
 @pytest_asyncio.fixture
 async def worker_db(engine, monkeypatch):
     import odin.db
-    import odin.worker.handlers
-    import odin.worker.queue
+    import odin.worker.tasks
 
     sm = async_sessionmaker(engine, expire_on_commit=False, class_=AsyncSession)
     monkeypatch.setattr(odin.db, "SessionLocal", sm)
-    monkeypatch.setattr(odin.worker.queue, "SessionLocal", sm)
-    monkeypatch.setattr(odin.worker.handlers, "SessionLocal", sm)
+    monkeypatch.setattr(odin.worker.tasks, "SessionLocal", sm)
     try:
         yield sm
     finally:

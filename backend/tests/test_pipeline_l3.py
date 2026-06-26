@@ -1,12 +1,9 @@
-import asyncio
 import uuid
 
-from odin.models import DocState, Document, ScopeType, User
+from odin.models import DocState, Document, Job, ScopeType, User
 from odin.services import blobs, embedding, graph, llm
 from odin.services.extraction import Extracted, ExtractedEntity, ExtractedRelation
-from odin.worker import queue
-from odin.worker.handlers import HANDLERS
-from odin.worker.runner import _run
+from odin.worker import tasks
 
 SRC = {
     "s3://odin/a": b"# A\n\n" + b"Bob works at Acme. " * 20,
@@ -60,22 +57,10 @@ async def _seed(sm, uid, blob_uri):
         )
         s.add(doc)
         await s.flush()
-        job = await queue.enqueue(s, doc.id, "ingest")
+        job = Job(document_id=doc.id, type="ingest")
+        s.add(job)
         await s.commit()
-        return {"id": job.id, "document_id": doc.id, "type": "ingest", "attempts": 1}
-
-
-async def _run_one(job):
-    pending = [dict(job)]
-    stop = asyncio.Event()
-
-    async def claim():
-        if pending:
-            return pending.pop()
-        stop.set()
-        return None
-
-    await asyncio.wait_for(_run(claim, HANDLERS, stop, queue.complete, queue.fail), timeout=20)
+        return {"id": job.id, "document_id": doc.id}
 
 
 def _setup(monkeypatch):
@@ -95,7 +80,7 @@ async def test_pipeline_builds_scoped_provenance_graph(worker_db, monkeypatch):
         await s.commit()
 
     job = await _seed(worker_db, uid, "s3://odin/a")
-    await _run_one(job)
+    await tasks.ingest(job_id=str(job["id"]))
 
     async with worker_db() as s:
         doc = await s.get(Document, job["document_id"])
@@ -119,8 +104,8 @@ async def test_pipeline_reingest_is_idempotent(worker_db, monkeypatch):
 
     job_a = await _seed(worker_db, uid, "s3://odin/a")
     job_b = await _seed(worker_db, uid, "s3://odin/b")
-    await _run_one(job_a)
-    await _run_one(job_b)
+    await tasks.ingest(job_id=str(job_a["id"]))
+    await tasks.ingest(job_id=str(job_b["id"]))
 
     async def _rel_count():
         async with worker_db() as s:
@@ -128,6 +113,6 @@ async def test_pipeline_reingest_is_idempotent(worker_db, monkeypatch):
             return rows[0][0]
 
     before = await _rel_count()
-    await _run_one(job_a)
+    await tasks.ingest(job_id=str(job_a["id"]))
     after = await _rel_count()
     assert before == after

@@ -1,12 +1,9 @@
-import asyncio
 import uuid
 
 from odin.models import Chunk, DocState, Document, Embedding, Job, JobState, ScopeType, User
 from odin.services import blobs, embedding, llm
 from odin.services.extraction import Extracted
-from odin.worker import queue
-from odin.worker.handlers import HANDLERS
-from odin.worker.runner import _run
+from odin.worker import tasks
 from sqlalchemy import func, select
 
 SRC = b"# Title\n\n" + b"word " * 300
@@ -39,22 +36,10 @@ async def _seed(sm) -> dict:
         )
         s.add(doc)
         await s.flush()
-        job = await queue.enqueue(s, doc.id, "ingest")
+        job = Job(document_id=doc.id, type="ingest")
+        s.add(job)
         await s.commit()
-        return {"id": job.id, "document_id": doc.id, "type": "ingest", "attempts": 1}
-
-
-async def _run_one(job: dict) -> None:
-    pending = [job]
-    stop = asyncio.Event()
-
-    async def claim():
-        if pending:
-            return pending.pop()
-        stop.set()
-        return None
-
-    await asyncio.wait_for(_run(claim, HANDLERS, stop, queue.complete, queue.fail), timeout=15)
+        return {"id": job.id, "document_id": doc.id}
 
 
 async def _counts(sm, document_id: uuid.UUID) -> tuple[int, int]:
@@ -79,7 +64,7 @@ async def test_pipeline_embeds_and_indexes(worker_db, monkeypatch):
     monkeypatch.setattr(embedding, "embed_texts", _fake_embed_texts)
     monkeypatch.setattr(llm, "complete_json", _fake_llm)
     job = await _seed(worker_db)
-    await _run_one(job)
+    await tasks.ingest(job_id=str(job["id"]))
 
     n_chunks, n_vecs = await _counts(worker_db, job["document_id"])
     assert n_chunks >= 1
@@ -99,8 +84,8 @@ async def test_reembed_replaces_vectors_cleanly(worker_db, monkeypatch):
     monkeypatch.setattr(embedding, "embed_texts", _fake_embed_texts)
     monkeypatch.setattr(llm, "complete_json", _fake_llm)
     job = await _seed(worker_db)
-    await _run_one(dict(job))
+    await tasks.ingest(job_id=str(job["id"]))
     c1, v1 = await _counts(worker_db, job["document_id"])
-    await _run_one(dict(job))
+    await tasks.ingest(job_id=str(job["id"]))
     c2, v2 = await _counts(worker_db, job["document_id"])
     assert c1 == c2 == v1 == v2 >= 1

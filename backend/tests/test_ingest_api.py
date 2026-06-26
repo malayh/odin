@@ -3,7 +3,7 @@ from odin.models import Document, Role
 from odin.services import blobs
 from odin.services.auth import issue_token
 from odin.services.orgs import add_member, create_org, create_user
-from sqlalchemy import select
+from sqlalchemy import select, text
 
 
 @pytest.fixture(autouse=True)
@@ -61,6 +61,18 @@ async def test_changed_content_creates_superseding_version(client, admin, db_ses
     assert active[0].version == 2
     assert superseded[0].version == 1
     assert superseded[0].supersedes_id == active[0].id
+
+
+async def test_ingest_defers_task_atomically(client, admin, db_session):
+    _, token = admin
+    r = await _upload(client, token, "deferme.md", b"defer this")
+    job_id = r.json()["job_id"]
+    deferred = await db_session.scalar(
+        text("SELECT count(*) FROM procrastinate_jobs WHERE task_name = 'ingest' "
+             "AND args->>'job_id' = :jid"),
+        {"jid": job_id},
+    )
+    assert deferred == 1
 
 
 async def test_unsupported_format_is_422(client, admin):

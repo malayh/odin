@@ -4,16 +4,28 @@ The API is the product; routers stay thin and delegate to odin.services.*.
 Run with: ``uv run uvicorn odin.main:app --reload``
 """
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 
 from odin.api import admin, ask, auth, graph, ingest, jobs, search
 from odin.errors import register_error_handlers
 from odin.logging import RequestIDMiddleware, configure_logging
+from odin.worker.app import app as queue_app
+
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    async with queue_app.open_async():
+        yield
 
 
 def create_app() -> FastAPI:
     configure_logging()
-    app = FastAPI(title="Odin", version="0.0.0", summary="The seeker of knowledge")
+    app = FastAPI(
+        title="Odin", version="0.0.0", summary="The seeker of knowledge", lifespan=_lifespan
+    )
     app.add_middleware(RequestIDMiddleware)
     register_error_handlers(app)
 

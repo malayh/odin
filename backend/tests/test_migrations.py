@@ -1,7 +1,7 @@
 import asyncio
 from pathlib import Path
 
-import asyncpg
+import psycopg
 import pytest
 from alembic import command
 from alembic.config import Config
@@ -30,10 +30,11 @@ def _cfg(url: str) -> Config:
 
 
 async def _public_tables(url: str) -> set[str]:
-    conn = await asyncpg.connect(url.replace("+asyncpg", ""))
+    conn = await psycopg.AsyncConnection.connect(url.replace("+psycopg", ""), autocommit=True)
     try:
-        rows = await conn.fetch("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
-        return {r["tablename"] for r in rows}
+        cur = await conn.execute("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")
+        rows = await cur.fetchall()
+        return {r[0] for r in rows}
     finally:
         await conn.close()
 

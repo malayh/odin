@@ -17,7 +17,7 @@ class Settings(BaseSettings):
     debug: bool = False
 
     # --- database (Postgres + pgvector + Apache AGE) ---
-    database_url: str = "postgresql+asyncpg://odin:odin@localhost:25000/odin"
+    database_url: str = "postgresql+psycopg://odin:odin@localhost:25000/odin"
     age_graph: str = "odin"
 
     # --- blob store (S3-compatible; MinIO in dev). AWS_* creds are read by boto3. ---
@@ -50,7 +50,6 @@ class Settings(BaseSettings):
     answer_context_max_chars: int = 8000
 
     # --- worker ---
-    worker_poll_interval_seconds: float = 1.0
     worker_max_attempts: int = 5
 
 

@@ -9,7 +9,7 @@ from odin.errors import ForbiddenError
 from odin.models import DocState, Document, Job
 from odin.services import blobs, converters
 from odin.tenancy import Scope, ScopeSet, can_write
-from odin.worker import queue
+from odin.worker.tasks import ingest as ingest_task
 
 
 async def intake(
@@ -48,6 +48,10 @@ async def intake(
     )
     session.add(doc)
     await session.flush()
-    job = await queue.enqueue(session, doc.id, "ingest")
+    job = Job(document_id=doc.id, type="ingest")
+    session.add(job)
+    await session.flush()
+    connection = (await (await session.connection()).get_raw_connection()).driver_connection
+    await ingest_task.configure(connection=connection).defer_async(job_id=str(job.id))
     await session.commit()
     return doc, job, False

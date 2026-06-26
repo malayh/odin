@@ -1,12 +1,10 @@
-import asyncio
 import uuid
 
+import pytest
 from odin.models import Chunk, DocState, Document, Job, JobState, ScopeType, User
 from odin.services import blobs, embedding, llm
 from odin.services.extraction import Extracted
-from odin.worker import queue
-from odin.worker.handlers import HANDLERS
-from odin.worker.runner import _run
+from odin.worker import tasks
 from sqlalchemy import func, select
 
 SRC = b"# Title\n\nHello world, this is a body.\n\n## Section\n\nMore text lives here.\n"
@@ -39,22 +37,10 @@ async def _seed(sm) -> dict:
         )
         s.add(doc)
         await s.flush()
-        job = await queue.enqueue(s, doc.id, "ingest")
+        job = Job(document_id=doc.id, type="ingest")
+        s.add(job)
         await s.commit()
-        return {"id": job.id, "document_id": doc.id, "type": "ingest", "attempts": 1}
-
-
-async def _run_one(job: dict) -> None:
-    pending = [job]
-    stop = asyncio.Event()
-
-    async def claim():
-        if pending:
-            return pending.pop()
-        stop.set()
-        return None
-
-    await asyncio.wait_for(_run(claim, HANDLERS, stop, queue.complete, queue.fail), timeout=15)
+        return {"id": job.id, "document_id": doc.id}
 
 
 async def _count_chunks(sm, document_id: uuid.UUID) -> int:
@@ -72,7 +58,7 @@ async def test_happy_path_chunks_and_completes(worker_db, monkeypatch):
     monkeypatch.setattr(embedding, "embed_texts", _fake_embed_texts)
     monkeypatch.setattr(llm, "complete_json", _fake_llm)
     job = await _seed(worker_db)
-    await _run_one(job)
+    await tasks.ingest(job_id=str(job["id"]))
 
     assert await _count_chunks(worker_db, job["document_id"]) >= 1
     async with worker_db() as s:
@@ -90,9 +76,9 @@ async def test_retry_is_idempotent(worker_db, monkeypatch):
     monkeypatch.setattr(embedding, "embed_texts", _fake_embed_texts)
     monkeypatch.setattr(llm, "complete_json", _fake_llm)
     job = await _seed(worker_db)
-    await _run_one(dict(job))
+    await tasks.ingest(job_id=str(job["id"]))
     n1 = await _count_chunks(worker_db, job["document_id"])
-    await _run_one(dict(job))
+    await tasks.ingest(job_id=str(job["id"]))
     n2 = await _count_chunks(worker_db, job["document_id"])
     assert n1 == n2 >= 1
 
@@ -103,8 +89,27 @@ async def test_handler_failure_records_error(worker_db, monkeypatch):
 
     monkeypatch.setattr(blobs, "get", boom)
     job = await _seed(worker_db)
-    await _run_one(job)
+    with pytest.raises(RuntimeError):
+        await tasks.ingest(job_id=str(job["id"]))
     async with worker_db() as s:
         jrow = await s.get(Job, job["id"])
         assert jrow.state is JobState.pending
         assert jrow.error is not None
+
+
+async def test_terminal_failure_marks_document(worker_db, monkeypatch):
+    async def boom(uri: str) -> bytes:
+        raise RuntimeError("blob exploded")
+
+    monkeypatch.setattr(blobs, "get", boom)
+    job = await _seed(worker_db)
+    async with worker_db() as s:
+        (await s.get(Job, job["id"])).attempts = 4
+        await s.commit()
+    with pytest.raises(RuntimeError):
+        await tasks.ingest(job_id=str(job["id"]))
+    async with worker_db() as s:
+        jrow = await s.get(Job, job["id"])
+        doc = await s.get(Document, job["document_id"])
+        assert jrow.state is JobState.failed
+        assert doc.state is DocState.failed
