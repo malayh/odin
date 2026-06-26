@@ -7,13 +7,15 @@ an **API-first** server with a thin CLI client.
 - **Design:** see [`spec.md`](./spec.md).
 - **Implementation plan (layer by layer):** see [`implementation.md`](./implementation.md).
 
-> Status: **Layer 3 (graph) write path implemented** — on top of L0–L2, ingestion now also
-> extracts entities + typed relationships (LLM via OpenRouter) and builds a provenance-rich,
-> scope-isolated knowledge graph in Apache AGE: canonical entity nodes resolved across documents,
-> every edge carrying scope + provenance, and an append-only mutation log. Odin stores all asserted
-> facts faithfully and surfaces conflicting ones at query time rather than adjudicating them. Graph
-> expansion in search, the graph API, and the CLI are deferred to a follow-up; ask/insight layers
-> are still stubs.
+> Status: **Layer 4 (ask) implemented** — on top of L0–L3, ingestion extracts entities + typed
+> relationships (LLM via OpenRouter) and builds a provenance-rich, scope-isolated knowledge graph in
+> Apache AGE: canonical entity nodes resolved across documents, every edge carrying scope + provenance,
+> and an append-only mutation log. Odin stores all asserted facts faithfully and surfaces conflicting
+> ones at query time rather than adjudicating them. The L3 read surface is live — graph expansion in
+> retrieval plus a graph API and `odin graph` CLI. `odin ask` now answers questions **grounded in the
+> corpus and cited**, refusing (rather than guessing) when the answer is not in your knowledge base;
+> retrieval → LLM rerank → scope-filtered context → cited generation. Streaming and the insight layer
+> (L5) are still to come.
 
 ## Repo layout
 

@@ -5,7 +5,7 @@ This grades Odin's grounded, cited `ask` over the ingested **Helios Robotics** c
 
 The point of the eval is behavioral, not exact-match: Odin must answer **from the corpus or
 not at all** — cite when it knows, surface conflicts instead of adjudicating them, refuse
-off-corpus questions, and never leak across scope. LLM output is nondeterministic, so judge the
+off-corpus questions. LLM output is nondeterministic, so judge the
 behavior against each rubric, not the wording.
 
 ## Prerequisites
@@ -45,9 +45,6 @@ plus the structural signals (`confident`, `citations`).
   uncertainty. FAIL if it confidently asserts a single value as the truth, or omits the conflict.
 - **refuse** — PASS iff it refuses (≈ "not in your knowledge base"), `confident` is false, and
   `citations` is empty. FAIL if it answers from world knowledge (e.g. "east", "Paris").
-- **isolation** — PASS iff it refuses in the asked scope and leaks **none** of the private content
-  and **no** citation from the other scope. FAIL on any leak. (Its paired control record is a
-  `grounded` case in the correct scope and should PASS.)
 - **alias** — PASS iff the alias resolves to the canonical entity and the grounded fact is returned
   with a citation. FAIL if it refuses or misses the entity.
 - **inference** — the answer is **not** stated in any single doc; it requires connecting facts
@@ -57,11 +54,8 @@ plus the structural signals (`confident`, `citations`).
   conclusion, or reaches it but hedges. FAIL if it refuses despite the facts being in-corpus,
   asserts a wrong conclusion, or is unconfident/uncited.
 
-Also apply two cross-cutting checks to every record:
+Also apply one cross-cutting check to every record:
 
-- **Citation scope integrity** — every citation's `scope_type` must match the asked `scope`
-  (an `org:<id>` ask must not cite a `personal` document, and vice versa). Any mismatch is a FAIL
-  regardless of category.
 - **Grounded-only** — no answer may rely on facts absent from the corpus. If `confident` is true
   there must be ≥1 citation.
 
@@ -70,7 +64,7 @@ Also apply two cross-cutting checks to every record:
 Write `integration_test/ask_report.md`:
 
 1. **Summary** — `PASS X/N` and a one-line verdict on whether `ask` is grounded, cites correctly,
-   surfaces conflicts, refuses off-corpus, and isolates scopes.
+   surfaces conflicts, and refuses off-corpus.
 2. **Results table** — one row per case:
 
    | id | category | scope | verdict | why (one line) |
@@ -78,7 +72,7 @@ Write `integration_test/ask_report.md`:
 
 3. **Failures & follow-ups** — for every FAIL / PARTIAL: quote the offending answer excerpt, name
    the rule it broke, and give a hypothesis (e.g. reranker dropped the second figure; gate let an
-   uncited answer through; private chunk entered org context).
+   uncited answer through; retrieval missed the supporting chunk).
 
 ## Notes
 

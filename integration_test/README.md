@@ -19,7 +19,6 @@ It is seeded with:
 - **Conflicting facts** (stored side by side with provenance — Odin does not adjudicate; they
   surface together at query time): Dana's title (CTO vs VP Engineering), Project Atlas ship date
   (Q2 vs Q3), Series B amount ($40M vs $45M), Vertex Dynamics (competitor vs potential partner).
-- **A personal/org scope split** to exercise retrieval isolation.
 
 ## Prerequisites
 
@@ -52,12 +51,11 @@ What it does:
 
 1. Seeds the initial admin (`mara@helios.test`) and logs the CLI in (writes an isolated
    config to `integration_test/.odin_config.yaml` via `ODIN_CONFIG`).
-2. Creates the `Helios Robotics` org (the creator is auto-enrolled as admin).
-3. `odin ingest -d corpus/personal --scope personal` and `-d corpus/org --scope org:<id>`,
+2. `odin ingest -d corpus` ingests the whole corpus into the admin's single brain,
    polling each job to completion against the real worker.
-4. Observes via the datastore + AGE graph and prints a report: documents by state/scope,
-   chunk count, entities, relationships, resolved aliases, sample searches,
-   and a scope-isolation spot-check.
+3. Consolidates entities, then observes via the datastore + AGE graph and prints a report:
+   documents by state, chunk count, entities, relationships, resolved aliases, and sample
+   searches.
 
 Capture the report for the design doc:
 
@@ -67,7 +65,7 @@ uv run python integration_test/run.py | tee /tmp/odin_run.txt
 
 ## Notes
 
-- Re-running is safe: unchanged files dedup (reported as `deduped`); the org is reused.
+- Re-running is safe: unchanged files dedup (reported as `deduped`).
 - To exercise the idempotent graph replace, edit one doc and re-run — its contributions are
   replaced, not duplicated.
 - LLM extraction is nondeterministic, so the exact entities/edges vary run to run; the harness

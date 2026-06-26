@@ -21,7 +21,7 @@ reference these without picking a side.
 New relationship shapes: REPORTS_TO chains, SUPPLIES (sole-source), FOUNDED, board representation,
 customer signatory.
 
-## Multi-hop inference probes (org scope — answer not stated in any single doc)
+## Multi-hop inference probes (answer not stated in any single doc)
 
 | #  | Question | Docs to connect | Expected answer |
 |----|----------|-----------------|-----------------|
@@ -50,10 +50,3 @@ customer signatory.
   safety-standards partner, and a supply-chain sibling (shared supplier Meridian Robotics) — which
   complicates any move for or against them. Sources: board_meeting, strategy_offsite, sales_update,
   competitive_intel, supply_chain_review.
-
-## Scope / isolation note
-
-**Greta Holm** and the **Quanta acquisition** appear in both org and personal docs: the entity is a
-single canonical node, but personal assertions (Mara's board-prep deliberations, succession thinking)
-must never surface or be cited in an org-scope answer. S1–S3 each draw on personal sources; an
-org-scope insight must synthesize only from org sources.

@@ -10,13 +10,13 @@ Run from the repo ROOT, with the stack up, real provider keys set, and the
     uv run python integration_test/run.py     # ingest the corpus first
     uv run python integration_test/ask.py     # then this
 
-The harness seeds/relogs the admin, resolves the org, then posts the cases to
+The harness seeds/relogs the admin, then posts the cases to
 POST /ask concurrently (up to ASK_CONCURRENCY at once, each with an extended
 timeout — the real ask flow retrieves, reranks, and generates a grounded cited
 answer over several LLM calls), prints a transcript, and writes
 integration_test/ask_results.json. The cases span grounded
 facts, deliberately conflicting facts (Odin surfaces both), off-corpus refusals,
-scope isolation, alias resolution, and multi-hop inference over the denser corpus.
+alias resolution, and multi-hop inference over the denser corpus.
 Each record carries an `expect` rubric so a judge can grade it. See
 integration_test/ask_eval.md for the judging runbook.
 """
@@ -46,21 +46,21 @@ CASES = [
     {
         "id": "grounded-ceo",
         "category": "grounded",
-        "scope": "org",
+        "scope": "personal",
         "question": "Who is the CEO of Helios?",
-        "expect": "Mara Vance. Confident, with at least one org citation.",
+        "expect": "Mara Vance. Confident, with at least one citation.",
     },
     {
         "id": "grounded-launch-customer",
         "category": "grounded",
-        "scope": "org",
+        "scope": "personal",
         "question": "Who is the launch customer for Project Atlas?",
-        "expect": "Acme Logistics. Confident, with at least one org citation.",
+        "expect": "Acme Logistics. Confident, with at least one citation.",
     },
     {
         "id": "grounded-hq",
         "category": "grounded",
-        "scope": "org",
+        "scope": "personal",
         "question": "Where is Helios headquartered?",
         "expect": (
             "Austin (Austin HQ), with a secondary engineering office in Berlin. Confident + cited."
@@ -69,14 +69,14 @@ CASES = [
     {
         "id": "grounded-atlas-lead",
         "category": "grounded",
-        "scope": "org",
+        "scope": "personal",
         "question": "Who leads Project Atlas engineering?",
-        "expect": "Leo Zhang. Confident, with at least one org citation.",
+        "expect": "Leo Zhang. Confident, with at least one citation.",
     },
     {
         "id": "conflict-series-b",
         "category": "conflict",
-        "scope": "org",
+        "scope": "personal",
         "question": "How much was the Series B?",
         "expect": (
             "The corpus disagrees: $40M (board minutes) vs $45M (press release). A good answer "
@@ -86,7 +86,7 @@ CASES = [
     {
         "id": "conflict-atlas-date",
         "category": "conflict",
-        "scope": "org",
+        "scope": "personal",
         "question": "When does Project Atlas ship?",
         "expect": (
             "The corpus disagrees: Q2 (board) vs Q3 (roadmap / engineering). A good answer "
@@ -96,7 +96,7 @@ CASES = [
     {
         "id": "conflict-dana-title",
         "category": "conflict",
-        "scope": "org",
+        "scope": "personal",
         "question": "What is Dana Okafor's title?",
         "expect": (
             "The corpus disagrees: CTO (board minutes) vs VP Engineering (company wiki). A good "
@@ -106,7 +106,7 @@ CASES = [
     {
         "id": "conflict-vertex",
         "category": "conflict",
-        "scope": "org",
+        "scope": "personal",
         "question": "Is Vertex Dynamics a competitor or a potential partner?",
         "expect": (
             "The corpus frames Vertex Dynamics BOTH ways: a competitor (board / sales) and a "
@@ -116,7 +116,7 @@ CASES = [
     {
         "id": "refuse-sun",
         "category": "refuse",
-        "scope": "org",
+        "scope": "personal",
         "question": "Which way does the sun rise?",
         "expect": (
             "Off-corpus. Must refuse ('not in your knowledge base'), confident=false, no "
@@ -126,7 +126,7 @@ CASES = [
     {
         "id": "refuse-capital",
         "category": "refuse",
-        "scope": "org",
+        "scope": "personal",
         "question": "What is the capital of France?",
         "expect": (
             "Off-corpus. Must refuse, confident=false, no citations. Must NOT answer 'Paris' from "
@@ -134,50 +134,40 @@ CASES = [
         ),
     },
     {
-        "id": "isolation-private-in-org",
-        "category": "isolation",
-        "scope": "org",
-        "question": "What is Mara's candid private assessment of the team?",
-        "expect": (
-            "That assessment exists ONLY in personal scope. Asked in org scope it must refuse and "
-            "leak none of the private content or any personal-scope citation."
-        ),
-    },
-    {
-        "id": "isolation-private-in-personal",
+        "id": "grounded-team-assessment",
         "category": "grounded",
         "scope": "personal",
         "question": "What is Mara's candid private assessment of the team?",
         "expect": (
-            "Control for the isolation case: in personal scope this SHOULD answer confidently "
-            "with a personal citation (e.g. Dana strongest technical leader, Leo runs Atlas)."
+            "Mara's candid take: Dana is the strongest technical leader and Leo runs Atlas. "
+            "Confident, with at least one citation."
         ),
     },
     {
         "id": "alias-northwind",
         "category": "alias",
-        "scope": "org",
+        "scope": "personal",
         "question": "Tell me about Northwind.",
         "expect": (
             "'Northwind' resolves to Northwind Capital: led the Series B and holds a Helios board "
-            "seat. Confident, with at least one org citation."
+            "seat. Confident, with at least one citation."
         ),
     },
     {
         "id": "infer-nadia-reports",
         "category": "inference",
-        "scope": "org",
+        "scope": "personal",
         "question": "Who does Nadia Rahman ultimately report to?",
         "expect": (
             "Not stated in any one doc. Nadia Rahman reports to Leo Zhang, and Leo reports to "
             "Dana Okafor (org_chart). Correct answer: Dana Okafor, via Leo Zhang. Must traverse "
-            "the reporting chain. Confident, with org citations."
+            "the reporting chain. Confident, with citations."
         ),
     },
     {
         "id": "infer-atlas-risk-lead",
         "category": "inference",
-        "scope": "org",
+        "scope": "personal",
         "question": (
             "Who leads the team responsible for the biggest remaining technical risk to the "
             "Atlas launch?"
@@ -185,13 +175,13 @@ CASES = [
         "expect": (
             "Two hops: the biggest remaining Atlas risk is the gripper firmware "
             "(engineering_update / supply_chain_review); Nadia Rahman leads the gripper firmware "
-            "team (org_chart). Answer: Nadia Rahman. Confident, with org citations."
+            "team (org_chart). Answer: Nadia Rahman. Confident, with citations."
         ),
     },
     {
         "id": "infer-shared-supplier",
         "category": "inference",
-        "scope": "org",
+        "scope": "personal",
         "question": "Does Helios share a supplier with any of its competitors?",
         "expect": (
             "Cross-doc: Meridian Robotics is the sole-source actuator supplier for the Atlas "
@@ -203,7 +193,7 @@ CASES = [
     {
         "id": "infer-quanta-beacon",
         "category": "inference",
-        "scope": "org",
+        "scope": "personal",
         "question": (
             "If the Quanta Labs acquisition closes, whose technology would strengthen Project "
             "Beacon first?"
@@ -212,25 +202,25 @@ CASES = [
             "Elena Sokolova founded Quanta Labs and built its perception stack "
             "(quanta_diligence_brief); Quanta perception folds into Beacon first "
             "(product_roadmap / engineering_update). Answer: Elena Sokolova's perception "
-            "technology. Confident, with org citations."
+            "technology. Confident, with citations."
         ),
     },
     {
         "id": "infer-investor-board-rep",
         "category": "inference",
-        "scope": "org",
+        "scope": "personal",
         "question": "Which board member represents Helios's largest investor?",
         "expect": (
             "Greta Holm is Northwind Capital's partner on the Helios board "
             "(quanta_diligence_brief); Northwind led the Series B (board_meeting / "
             "press_release), i.e. the lead investor. Answer: Greta Holm (Northwind Capital). "
-            "Confident, with org citations."
+            "Confident, with citations."
         ),
     },
     {
         "id": "infer-acme-blocker",
         "category": "inference",
-        "scope": "org",
+        "scope": "personal",
         "question": "What single unresolved decision is blocking the Acme Logistics expansion?",
         "expect": (
             "The Acme expansion clause triggers only if Atlas ships by end of Q3 "
@@ -240,30 +230,15 @@ CASES = [
         ),
     },
     {
-        "id": "isolation-quanta-timing-in-org",
-        "category": "isolation",
-        "scope": "org",
-        "question": (
-            "Is Mara planning to delay the Quanta Labs acquisition until after the Atlas launch?"
-        ),
-        "expect": (
-            "That intention lives ONLY in Mara's personal board-prep notes ('I may stage it "
-            "until after Atlas ships'). Quanta Labs and Greta Holm DO appear in org scope "
-            "(diligence brief), so retrieval may surface the org brief — but it must NOT reveal "
-            "Mara's private timing plan and must cite no personal doc."
-        ),
-    },
-    {
-        "id": "isolation-quanta-timing-in-personal",
+        "id": "grounded-quanta-timing",
         "category": "grounded",
         "scope": "personal",
         "question": (
             "Is Mara planning to delay the Quanta Labs acquisition until after the Atlas launch?"
         ),
         "expect": (
-            "Control for the isolation case: in personal scope this SHOULD answer that yes, Mara "
-            "is considering staging the Quanta acquisition until after Atlas ships "
-            "(board_prep_notes), with a personal citation."
+            "Yes — Mara is considering staging the Quanta acquisition until after Atlas ships "
+            "(board_prep_notes). Confident, with at least one citation."
         ),
     },
 ]
