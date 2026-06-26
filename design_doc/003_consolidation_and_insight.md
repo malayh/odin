@@ -27,7 +27,7 @@ Sleep does not learn new facts — it **restructures** what was learned. The map
 
 | Decision | Choice |
 | --- | --- |
-| **Whose mind sleeps** | **Single global brain.** One sleep process over the whole graph — not per-tenant shards. Legal only because of spec §4.3: it operates on entity *existence* (shareable) and writes every artifact back **scoped to its evidence**. Isolation stays a write-time-scoping + query-time-filter property, never weakened by the global pass. See [Isolation under a global brain](#isolation-under-a-single-global-brain). |
+| **Whose mind sleeps** | **The user's whole brain.** [004](004_drop_org_single_brain.md) drops orgs — a brain *is* a user and owns its entire graph, so the sleep pass simply runs over everything that user owns. No per-tenant shards, no cross-scope leakage to engineer around: the multi-tenant `scope` model that made a "global" pass delicate is gone. See [Isolation under one brain](#isolation-under-one-brain). |
 | **How changes land** | **Consolidation auto-applies** (high bar, reversible-by-design); **insights are `proposed`** (confirm/reject). The brain reorganizes memory on its own, but a *dreamed* idea is a hypothesis a human signs off on. Matches Odin's "store facts, let the user decide" spine. |
 | **Consolidation bar** | A new **`deep_consolidate`** that judges on an *evidence dossier* (contexts, neighborhoods, co-occurring entities, doc topics), not bare name + 3 facts — with a **high bar** (majority-vote judge). Plus a **user-asserted "same-as" API** that forces a merge and re-consolidates the neighborhood. |
 | **Pruning stance** | **Very conservative.** Only retract facts from **soft-deleted** documents and drop **true orphans** (zero edges, zero support). Never prune for age or low centrality. |
@@ -89,7 +89,7 @@ graph change. A tiny `consolidation_runs` table stores the last processed `seq` 
 `deep_consolidate` may *propose* a split (not auto-apply — splitting re-creates edge sets, which
 `apply_inverse` already can't invert). Split is the natural correction for a bad prior merge.
 
-**User-asserted identity** — `POST /graph/entities/{a}/same-as/{b}` (Editor+ on a shared scope): a
+**User-asserted identity** — `POST /graph/entities/{a}/same-as/{b}` (the owner, on their own graph): a
 human says "these are the same." Highest-trust signal — immediately `merge_nodes` + log, then pulls the
 merged neighborhood back through `deep_consolidate` so the assertion ripples outward.
 
@@ -97,7 +97,10 @@ merged neighborhood back through `deep_consolidate` so the assertion ripples out
 - retract contributions of **soft-deleted** docs (`graph.delete_document_contributions`, already exists;
   ties to spec §10.3's soft-delete→purge), and
 - drop **true orphans** (entities with zero remaining edges and no supporting doc).
-Nothing is pruned for being old or peripheral.
+Nothing is pruned for being old or peripheral. **`Objective` nodes are never pruned** — not even as
+orphans; they are the organizing force, dropped only by an explicit human `objective drop`. Manually
+added entities/edges (see [Knowledge CLI](#knowledge-cli)) carry **no** prune exemption: an unconnected
+manual entity is a true orphan and may be cleaned like any other.
 
 ### The Objectives layer (the organizing force)
 
@@ -106,9 +109,9 @@ connected like entities as evidence accrues, and they are the **anchors** for RE
 
 - **Representation:** a distinct AGE vlabel `Objective` (pre-created in `0006` following the
   `0004_graph.py` `_VLABELS` pattern), plus an edge label `SERVES` (`Entity|Document -[SERVES]-> Objective`)
-  and `ABOUT`. Objectives carry scope + provenance like everything else.
+  and `ABOUT`. Objectives carry `owner` + provenance like everything else.
 - **Sources (all three):**
-  1. **Explicit** — `odin objective add "<text>"` / API. `origin=user`, highest signal. The MVP source.
+  1. **Explicit** — `odin graph objective add "<text>"` / API. `origin=user`, highest signal. The MVP source.
   2. **Inferred from ingested notes** — extend `extraction` to emit candidate objectives when a doc
      states goals/intent (esp. personal notes). Emitted as **`proposed`** objectives for confirm/reject.
   3. **Promoted from communities** — REM's community detection surfaces a recurring, growing cluster as
@@ -136,28 +139,23 @@ as **`proposed`** (see trust). Stop when the cap or token budget is hit, whichev
 
 ---
 
-## Isolation under a single global brain
+## Isolation under one brain
 
-The load-bearing risk. A global pass that re-canonicalizes everything **must not** become a leakage
-path. The guard, in three rules:
+[004](004_drop_org_single_brain.md) dissolved the load-bearing risk this section used to carry. With
+orgs gone there is no cross-tenant scope to leak across: a brain is one user, and the sleep pass only
+ever touches what that user owns (`documents.owner_user_id == you`; edges carry a single `owner`
+property). The old three-rule scope-inheritance guard — node-existence vs. edge-scope vs. co-visible
+insights — is obsolete.
 
-1. **Node merges are existence-level.** Spec §4.3: entity *existence* is shareable; merging two entity
-   *nodes* changes only existence, never who-can-see-which-edge. Global node consolidation is therefore
-   safe by construction.
-2. **Edges are never re-scoped.** Every `MENTIONS`/`REL`/reasoning edge keeps the scope of the doc that
-   asserted it. Query-time `graph._scope_clause` is untouched; nothing the brain does widens a traversal.
-3. **Insights inherit their evidence's scope and only materialize when co-visible.** An insight doc + its
-   reasoning edges are scoped to the **union of scopes of the supporting edges**, and are returnable only
-   to a caller whose scope-set covers *all* of that evidence. A bridge whose two ends live in disjoint
-   scopes that **no single caller can see together is never written down.** The brain may *think* across
-   everything; it may only *record* a thought some real viewer could fully substantiate.
+What survives is one fact, and it is trivial to enforce: **everything the cycle reads, merges, prunes, or
+dreams stays within a single owner.** Entity *nodes* remain global/shared in AGE (existence is not
+owner-tagged, per 004); **edges, insight docs, objectives, and reasoning subgraphs all carry `owner`** and
+are returnable only to that owner. The "insight private to its creator" intent of spec §7.4 collapses to
+its simplest form: there is one creator, and the insight is theirs.
 
-Consequence for objectives: an objective inferred from a personal note is personal-scoped; from org docs,
-org-scoped. This refines spec §7.4's "insight private to its creator" for a brain with no single creator:
-**scoped to evidence; personal-evidence insights are private to that user; cross-scope insights only form
-within one user's reachable set and are private to them.**
-
-Every one of these rules gets a case in `tests/test_isolation.py`.
+If multi-user ever returns as "separate brains that share by reference" (004's parked idea), attribution
+lives on the edge `owner` and a real isolation story grows back here. For now the cross-user ownership
+boundary is exercised by `tests/test_isolation.py` (rewritten cross-user by 004).
 
 ---
 
@@ -166,11 +164,47 @@ Every one of these rules gets a case in `tests/test_isolation.py`.
 Consolidation **auto-applies** (it restructures existing, already-trusted facts). Everything the cycle
 *invents* — insight docs, reasoning edges, inferred objectives — lands as **`proposed`**:
 
-- `confirm`/`reject` API + `odin graph` CLI; each decision logged via `mutations.log`.
+- `confirm`/`reject` API + `odin graph insight confirm/reject` CLI; each decision logged via `mutations.log`.
 - Answering (L4 `services/answering.py`) **prefers confirmed/extracted** facts and flags reliance on
   unconfirmed inferences — the down-weighting hook L4 already anticipated.
 - A `proposed` insight is excluded from retrieval grounding until confirmed (or surfaced clearly as
   unconfirmed), so dreams never silently become cited "fact."
+- **Manual graph edits** (the [Knowledge CLI](#knowledge-cli) `entity`/`edge` verbs) land as
+  **`confirmed`** — a human assertion is the highest-trust signal, so answering treats them like
+  extracted/confirmed facts. Trust governs *grounding weight*, not *survival*: they are **not**
+  prune-exempt (only `Objective` nodes are), so a confirmed-but-orphaned manual entity can still be cleaned.
+
+---
+
+## Knowledge CLI
+
+The human's deterministic window into the brain — counterpart to the autonomous cycle. **No command here
+ever calls an LLM**: the *only* LLM-driven graph mutation in the system is the sleep cycle. Human edits
+are immediate and `confirmed`; machine dreams are async and `proposed`. The surface lives under the
+existing `odin graph` group (a thin Typer wrapper over the API), restructured into a `noun → verb`
+grammar. Mutations apply immediately and print a plain-text summary; `--dry-run` previews impact without
+writing; reads honor `--json`. Entities are referenced by canonical `type:name` key (discover one with
+`find`); objectives/insights by id. Every mutation logs via `mutations.log`, visible through
+`entity history`.
+
+| Command | Action |
+| --- | --- |
+| `entity show <key> [--depth N] [--tree]` | inspect an entity; `--depth/--tree` render the neighborhood tree (subsumes the once-proposed `show-related`) |
+| `entity find <name>` | name/alias substring search → keys |
+| `entity list [--type T] [--limit] [--offset]` | list entities |
+| `entity history <key>` | provenance / mutation log |
+| `entity add <type>:<name>` | create a node (`confirmed`; **not** prune-exempt) |
+| `entity merge <from-key> <into-key>` | absorb `from` into `into` — the Phase-C same-as op; no undo |
+| `entity rename <key> <new-name>` | re-key + re-point edges |
+| `entity drop <key>` | delete + detach |
+| `edge add <subj> <predicate> <obj>` | create a relationship |
+| `edge rm <subj> <predicate> <obj>` | remove a relationship |
+| `objective add "<text>"` / `drop <id>` / `list` | objective lifecycle — `Objective` nodes are prune-exempt |
+| `insight confirm <id>` / `reject <id>` / `list` | the Phase-F trust loop; `list` is chronological |
+
+**Deferred:** `entity split` (awkward to specify by hand — stays a consolidation-*proposed* op) and
+`entity retype`. **No `update` / natural-language mutation surface** — it was designed out, deliberately,
+to keep every CLI path deterministic and LLM-free.
 
 ---
 
@@ -192,25 +226,34 @@ Consolidation **auto-applies** (it restructures existing, already-trusted facts)
 ## Phase checklist
 
 - [ ] **A — Objectives layer.** `Objective` ontology type + AGE labels (`0006`); explicit
-  API/CLI (`odin objective`); extraction extension to propose objectives from notes; `graph` upsert/read
-  for objectives. *(Sources 1+2; source 3 lands with D.)*
+  API/CLI (`odin graph objective add/drop/list`); extraction extension to propose objectives from notes;
+  `graph` upsert/read for objectives. *(Sources 1+2; source 3 lands with D.)*
 - [ ] **B — `deep_consolidate`.** Evidence dossier + majority-vote judge; reuse `merge_nodes` + log;
   propose-split path. Promote consolidation from harness call to a real callable. Unit tests extend
   `test_consolidation.py`.
 - [ ] **C — User-asserted same-as.** `POST /graph/entities/{a}/same-as/{b}` → forced merge +
-  neighborhood re-consolidation; scope-authorized. `test_graph_api.py`.
+  neighborhood re-consolidation; owner-authorized. CLI: `odin graph entity merge <from> <into>`. **No
+  user-asserted provenance/trust class** — a manual merge restructures already-trusted facts, exactly as
+  consolidation does. `test_graph_api.py`.
 - [ ] **D — Sleep job runtime.** Procrastinate periodic task + admin trigger; working-set via mutation
   watermark; random far-jump; conservative pruning; `consolidation_runs`; on/off toggle.
 - [ ] **E — REM creative.** Community detection + bridge paths + LLM synthesis, objective-anchored;
   insight docs + reasoning subgraph; `insights_per_cycle` + `dream_token_budget` caps.
-- [ ] **F — Trust loop.** `TrustState` + confirm/reject API + `odin graph` CLI; answering prefers
-  confirmed/extracted; proposed insights excluded from grounding.
-- [ ] **G — Isolation hardening.** The three global-brain rules → cases in `test_isolation.py`.
+- [ ] **F — Trust loop.** `TrustState` + confirm/reject API + `odin graph insight confirm/reject` CLI;
+  answering prefers confirmed/extracted; proposed insights excluded from grounding.
+- [ ] **G — Isolation hardening.** Folded into [004](004_drop_org_single_brain.md): the cycle reads and
+  writes only the owner's graph; one cross-user case in `test_isolation.py` confirms a sleep pass never
+  crosses the `owner` boundary. No multi-scope rules remain to test.
 - [ ] **H — Live run + record.** Run a sleep cycle against the 001/002 corpus on the real stack; confirm
   Dana/Mara finally consolidate under the dossier+vote bar; record observations here (002 Phase-C style).
+- [ ] **I — Knowledge CLI.** `odin graph` `noun → verb` restructure + deterministic editing verbs
+  (`entity add/rename/drop`, `edge add/rm`, `entity show --depth/--tree`, `entity list`), `--dry-run` on
+  mutations, no LLM path. Objective/insight/merge verbs ride A/C/F. See [Knowledge CLI](#knowledge-cli).
+  `test_cli_graph.py`.
 
 **Sequencing:** A → B → C (consolidation usable + testable), then D (schedule it), then E → F (dream +
-trust), G alongside C/E, H last.
+trust), G alongside C/E, H last. **I** lands incrementally — objective/insight/merge verbs with A/C/F, the
+standalone editing verbs + restructure as a small pass after C.
 
 ---
 
