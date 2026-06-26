@@ -34,7 +34,7 @@ class Client:
         headers = {}
         if config.token:
             headers["Authorization"] = f"Bearer {config.token}"
-        self._http = httpx.Client(base_url=config.server_url, headers=headers, timeout=60.0)
+        self._http = httpx.Client(base_url=config.server_url, headers=headers, timeout=300.0)
 
     def __enter__(self) -> "Client":
         return self

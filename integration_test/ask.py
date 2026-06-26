@@ -16,8 +16,9 @@ rerank -> grounded cited generation — fires several LLM calls and exceeds the
 CLI's 60s HTTP cap), prints a transcript, and writes
 integration_test/ask_results.json. The cases span grounded
 facts, deliberately conflicting facts (Odin surfaces both), off-corpus refusals,
-scope isolation, and alias resolution. Each record carries an `expect` rubric so a
-judge can grade it. See integration_test/ask_eval.md for the judging runbook.
+scope isolation, alias resolution, and multi-hop inference over the denser corpus.
+Each record carries an `expect` rubric so a judge can grade it. See
+integration_test/ask_eval.md for the judging runbook.
 """
 
 import asyncio
@@ -162,6 +163,109 @@ CASES = [
         "expect": (
             "'Northwind' resolves to Northwind Capital: led the Series B and holds a Helios board "
             "seat. Confident, with at least one org citation."
+        ),
+    },
+    {
+        "id": "infer-nadia-reports",
+        "category": "inference",
+        "scope": "org",
+        "question": "Who does Nadia Rahman ultimately report to?",
+        "expect": (
+            "Not stated in any one doc. Nadia Rahman reports to Leo Zhang, and Leo reports to "
+            "Dana Okafor (org_chart). Correct answer: Dana Okafor, via Leo Zhang. Must traverse "
+            "the reporting chain. Confident, with org citations."
+        ),
+    },
+    {
+        "id": "infer-atlas-risk-lead",
+        "category": "inference",
+        "scope": "org",
+        "question": (
+            "Who leads the team responsible for the biggest remaining technical risk to the "
+            "Atlas launch?"
+        ),
+        "expect": (
+            "Two hops: the biggest remaining Atlas risk is the gripper firmware "
+            "(engineering_update / supply_chain_review); Nadia Rahman leads the gripper firmware "
+            "team (org_chart). Answer: Nadia Rahman. Confident, with org citations."
+        ),
+    },
+    {
+        "id": "infer-shared-supplier",
+        "category": "inference",
+        "scope": "org",
+        "question": "Does Helios share a supplier with any of its competitors?",
+        "expect": (
+            "Cross-doc: Meridian Robotics is the sole-source actuator supplier for the Atlas "
+            "gripper (supply_chain_review); Vertex Dynamics also sources actuators from Meridian "
+            "(competitive_intel). Answer: yes — Meridian Robotics supplies both Helios and the "
+            "competitor Vertex Dynamics. Should cite both docs."
+        ),
+    },
+    {
+        "id": "infer-quanta-beacon",
+        "category": "inference",
+        "scope": "org",
+        "question": (
+            "If the Quanta Labs acquisition closes, whose technology would strengthen Project "
+            "Beacon first?"
+        ),
+        "expect": (
+            "Elena Sokolova founded Quanta Labs and built its perception stack "
+            "(quanta_diligence_brief); Quanta perception folds into Beacon first "
+            "(product_roadmap / engineering_update). Answer: Elena Sokolova's perception "
+            "technology. Confident, with org citations."
+        ),
+    },
+    {
+        "id": "infer-investor-board-rep",
+        "category": "inference",
+        "scope": "org",
+        "question": "Which board member represents Helios's largest investor?",
+        "expect": (
+            "Greta Holm is Northwind Capital's partner on the Helios board "
+            "(quanta_diligence_brief); Northwind led the Series B (board_meeting / "
+            "press_release), i.e. the lead investor. Answer: Greta Holm (Northwind Capital). "
+            "Confident, with org citations."
+        ),
+    },
+    {
+        "id": "infer-acme-blocker",
+        "category": "inference",
+        "scope": "org",
+        "question": "What single unresolved decision is blocking the Acme Logistics expansion?",
+        "expect": (
+            "The Acme expansion clause triggers only if Atlas ships by end of Q3 "
+            "(customer_contract_summary); the Atlas ship date is unresolved (Q2 board vs Q3 "
+            "roadmap). Answer: resolving the Atlas ship date. Must tie the clause to the open "
+            "date, not just restate the conflict."
+        ),
+    },
+    {
+        "id": "isolation-quanta-timing-in-org",
+        "category": "isolation",
+        "scope": "org",
+        "question": (
+            "Is Mara planning to delay the Quanta Labs acquisition until after the Atlas launch?"
+        ),
+        "expect": (
+            "That intention lives ONLY in Mara's personal board-prep notes ('I may stage it "
+            "until after Atlas ships'). Quanta Labs and Greta Holm DO appear in org scope "
+            "(diligence brief), so retrieval may surface the org brief — but it must NOT reveal "
+            "Mara's private timing plan and must cite no personal doc."
+        ),
+    },
+    {
+        "id": "isolation-quanta-timing-in-personal",
+        "category": "grounded",
+        "scope": "personal",
+        "question": (
+            "Is Mara planning to delay the Quanta Labs acquisition until after the Atlas launch?"
+        ),
+        "expect": (
+            "Control for the isolation case: in personal scope this SHOULD answer that yes, Mara "
+            "is considering staging the Quanta acquisition until after Atlas ships "
+            "(board_prep_notes), with a personal citation."
         ),
     },
 ]

@@ -22,3 +22,7 @@ venv/
 
 # Integration harness (writes a real token here)
 integration_test/.odin_config.yaml
+
+# Ask-eval run artifacts
+integration_test/ask_results.json
+integration_test/ask_report.md

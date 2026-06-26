@@ -1,0 +1,9 @@
+Private — succession & key-person risk (do not share)
+
+The thing that keeps me up: how much rides on Leo Zhang.
+
+Leo runs Project Atlas, owns the shared control platform, and is doing the technical evaluation for the Quanta Labs acquisition. Nadia Rahman's gripper-firmware team — the biggest Atlas risk — reports up through Leo too. If Leo walked tomorrow, three things break at once: the Atlas launch, the platform, and the Quanta decision.
+
+Dana Okafor is my succession answer for engineering leadership overall, but Dana is already stretched and is the one delegating Atlas to Leo in the first place. So the real bus-factor problem is Leo, not Dana.
+
+I haven't told anyone I think about it this way. Action: quietly build a backup for Leo on the platform before the Atlas launch, and make sure the Quanta technical read isn't single-threaded through him.

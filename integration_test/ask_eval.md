@@ -50,6 +50,12 @@ plus the structural signals (`confident`, `citations`).
   `grounded` case in the correct scope and should PASS.)
 - **alias** — PASS iff the alias resolves to the canonical entity and the grounded fact is returned
   with a citation. FAIL if it refuses or misses the entity.
+- **inference** — the answer is **not** stated in any single doc; it requires connecting facts
+  across the documents named in `expect`. PASS iff `confident` is true, `citations` is non-empty,
+  and the answer reaches the inferred conclusion in `expect` by combining the sources (ideally
+  citing more than one). PARTIAL if it surfaces the supporting facts but stops short of the
+  conclusion, or reaches it but hedges. FAIL if it refuses despite the facts being in-corpus,
+  asserts a wrong conclusion, or is unconfident/uncited.
 
 Also apply two cross-cutting checks to every record:
 
