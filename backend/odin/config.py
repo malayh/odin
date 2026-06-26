@@ -44,6 +44,11 @@ class Settings(BaseSettings):
     expand_entities_per_doc: int = 16
     expand_neighbors_per_entity: int = 16
 
+    # --- ask (rerank + answer) ---
+    ask_top_k: int = 20
+    ask_context_chunks: int = 8
+    answer_context_max_chars: int = 8000
+
     # --- worker ---
     worker_poll_interval_seconds: float = 1.0
     worker_max_attempts: int = 5

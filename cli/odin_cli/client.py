@@ -90,6 +90,14 @@ class Client:
             payload["scope"] = scope
         return self._request("POST", "/search", json=payload)
 
+    def ask(self, question: str, scope: str | None, history: list[Any] | None = None) -> Any:
+        payload: dict[str, Any] = {"question": question}
+        if scope:
+            payload["scope"] = scope
+        if history:
+            payload["history"] = history
+        return self._request("POST", "/ask", json=payload)
+
     def find_entities(self, q: str) -> Any:
         return self._request("GET", "/graph/entities", params={"q": q})
 

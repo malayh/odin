@@ -83,6 +83,54 @@ async def test_vector_search_excludes_other_users(db_session, monkeypatch):
     assert their_chunk.id not in ids
 
 
+async def test_ask_excludes_other_users(db_session, monkeypatch):
+    import re
+
+    from odin.models import Chunk, Embedding
+    from odin.services import answering, embedding, llm
+
+    me = await _user(db_session, "ask-me@example.com")
+    other = await _user(db_session, "ask-other@example.com")
+
+    async def _seed(owner, text):
+        doc = await _doc(db_session, owner.id, ScopeType.personal, owner.id)
+        c = Chunk(
+            document_id=doc.id,
+            ordinal=0,
+            text=text,
+            section_meta={"headings": []},
+            char_start=0,
+            char_end=len(text),
+        )
+        db_session.add(c)
+        await db_session.flush()
+        db_session.add(Embedding(chunk_id=c.id, vector=[1.0] + [0.0] * 1535))
+        await db_session.flush()
+        return doc
+
+    mine = await _seed(me, "my secret")
+    theirs = await _seed(other, "their secret")
+
+    async def fake_q(texts):
+        return [[1.0] + [0.0] * 1535]
+
+    async def fake_llm(prompt, schema, system=None):
+        if schema.__name__ == "_Ranking":
+            return schema(rankings=[])
+        ids = re.findall(r"\[doc ([0-9a-f-]+) \|", prompt)
+        return schema(answer="ok", confident=True, used_document_ids=ids + [str(theirs.id)])
+
+    monkeypatch.setattr(embedding, "embed_texts", fake_q)
+    monkeypatch.setattr(llm, "complete_json", fake_llm)
+
+    scope_set = await resolve_scope_set(db_session, me)
+    out = await answering.answer(db_session, scope_set, "q")
+    cited = {c.document_id for c in out.citations}
+
+    assert mine.id in cited
+    assert theirs.id not in cited
+
+
 async def test_graph_traversal_excludes_other_users(worker_db):
     from types import SimpleNamespace
 
