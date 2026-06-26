@@ -10,10 +10,10 @@ Run from the repo ROOT, with the stack up, real provider keys set, and the
     uv run python integration_test/run.py     # ingest the corpus first
     uv run python integration_test/ask.py     # then this
 
-The harness seeds/relogs the admin, resolves the org, then posts each case to
-POST /ask directly with an extended timeout (the real ask flow — retrieve ->
-rerank -> grounded cited generation — fires several LLM calls and exceeds the
-CLI's 60s HTTP cap), prints a transcript, and writes
+The harness seeds/relogs the admin, resolves the org, then posts the cases to
+POST /ask concurrently (up to ASK_CONCURRENCY at once, each with an extended
+timeout — the real ask flow retrieves, reranks, and generates a grounded cited
+answer over several LLM calls), prints a transcript, and writes
 integration_test/ask_results.json. The cases span grounded
 facts, deliberately conflicting facts (Odin surfaces both), off-corpus refusals,
 scope isolation, alias resolution, and multi-hop inference over the denser corpus.
@@ -43,6 +43,7 @@ ADMIN_EMAIL = "mara@helios.test"
 ORG_NAME = "Helios Robotics"
 ENV = {**os.environ, "ODIN_CONFIG": str(CONFIG)}
 ASK_TIMEOUT = 240.0
+ASK_CONCURRENCY = 5
 
 CASES = [
     {
@@ -313,7 +314,9 @@ def resolve_scope(kind: str, org_id: str) -> str:
     return f"org:{org_id}" if kind == "org" else kind
 
 
-def ask_case(http: httpx.Client, case: dict[str, Any], org_id: str) -> dict[str, Any]:
+async def ask_case(
+    http: httpx.AsyncClient, sem: asyncio.Semaphore, case: dict[str, Any], org_id: str
+) -> dict[str, Any]:
     scope = resolve_scope(case["scope"], org_id)
     record: dict[str, Any] = {
         "id": case["id"],
@@ -323,9 +326,10 @@ def ask_case(http: httpx.Client, case: dict[str, Any], org_id: str) -> dict[str,
         "expect": case["expect"],
     }
     try:
-        resp = http.post("/ask", json={"question": case["question"], "scope": scope})
-        resp.raise_for_status()
-        data = resp.json()
+        async with sem:
+            resp = await http.post("/ask", json={"question": case["question"], "scope": scope})
+            resp.raise_for_status()
+            data = resp.json()
         record |= {
             "answer": data["answer"],
             "confident": data["confident"],
@@ -347,17 +351,17 @@ async def main() -> None:
     print(f"org:   {ORG_NAME} ({org_id})\n")
 
     headers = {"Authorization": f"Bearer {token}"}
-    records = []
-    with httpx.Client(base_url=SERVER, headers=headers, timeout=ASK_TIMEOUT) as http:
-        for case in CASES:
-            record = ask_case(http, case, org_id)
-            records.append(record)
-            cited = len(record["citations"])
-            answer = record["answer"] or f"<error: {record['error']}>"
-            print(f"[{record['category']}] {record['id']}  ({record['scope']})")
-            print(f"  Q: {record['question']}")
-            print(f"  confident={record['confident']}  citations={cited}")
-            print(f"  A: {answer.strip()}\n")
+    sem = asyncio.Semaphore(ASK_CONCURRENCY)
+    async with httpx.AsyncClient(base_url=SERVER, headers=headers, timeout=ASK_TIMEOUT) as http:
+        records = await asyncio.gather(*(ask_case(http, sem, case, org_id) for case in CASES))
+
+    for record in records:
+        cited = len(record["citations"])
+        answer = record["answer"] or f"<error: {record['error']}>"
+        print(f"[{record['category']}] {record['id']}  ({record['scope']})")
+        print(f"  Q: {record['question']}")
+        print(f"  confident={record['confident']}  citations={cited}")
+        print(f"  A: {answer.strip()}\n")
 
     RESULTS.write_text(json.dumps(records, indent=2))
     print(f"wrote {len(records)} results -> {RESULTS}")
