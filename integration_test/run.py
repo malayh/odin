@@ -101,6 +101,12 @@ async def observe() -> None:
             "MATCH (:Document)-[m:MENTIONS]->(e:Entity) RETURN e.key, m.alias",
             columns=("key", "alias"),
         )
+        objs = await cypher(
+            s,
+            GRAPH,
+            "MATCH (o:Objective) RETURN o.text, o.origin, o.trust, o.confidence",
+            columns=("text", "origin", "trust", "confidence"),
+        )
 
     print("== documents ==")
     for state, n in doc_rows:
@@ -125,6 +131,12 @@ async def observe() -> None:
     print(f"== entities resolved from multiple surface forms ({len(multi)}) ==")
     for key, al in sorted(multi.items()):
         print(f"  {key}: {sorted(al)}")
+    print()
+
+    inferred = [o for o in objs if o[1] == "inferred"]
+    print(f"== objectives inferred from content ({len(inferred)}) ==")
+    for text, _origin, trust, conf in sorted(objs, key=lambda o: -(o[3] or 0)):
+        print(f"  [{trust}] ({conf})  {text}")
     print()
 
     print("== search samples ==")

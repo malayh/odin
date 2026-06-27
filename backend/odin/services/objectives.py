@@ -46,6 +46,40 @@ async def create(
     return {"applied": True, "summary": f"created objective {oid}", "id": oid}
 
 
+async def infer(
+    session: AsyncSession,
+    owner: uuid.UUID,
+    source_doc_id: str,
+    text: str,
+    confidence: float,
+) -> str:
+    norm = " ".join(text.split()).lower()
+    oid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{owner}|{source_doc_id}|{norm}"))
+    await _cy(
+        session,
+        "MERGE (o:Objective {id:$id}) "
+        "SET o.text=$text, o.owner=$owner, o.origin='inferred', o.trust='proposed', "
+        "o.source_doc_id=$sdid, o.confidence=$confidence, "
+        "o.created_at=coalesce(o.created_at, $now)",
+        {
+            "id": oid,
+            "text": text,
+            "owner": str(owner),
+            "sdid": source_doc_id,
+            "confidence": confidence,
+            "now": _now(),
+        },
+    )
+    await mutations.log(
+        session,
+        actor="extractor",
+        op="objective_infer",
+        payload={"id": oid, "owner": str(owner), "text": text, "source_doc_id": source_doc_id},
+        confidence=confidence,
+    )
+    return oid
+
+
 async def list_for_owner(session: AsyncSession, owner: uuid.UUID) -> list[dict[str, Any]]:
     rows = await _cy(
         session,

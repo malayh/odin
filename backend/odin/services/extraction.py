@@ -23,19 +23,33 @@ class ExtractedRelation(BaseModel):
     confidence: float = 0.5
 
 
+class ExtractedObjective(BaseModel):
+    text: str
+    confidence: float = 0.5
+
+
 class Extracted(BaseModel):
     entities: list[ExtractedEntity] = Field(default_factory=list)
     relations: list[ExtractedRelation] = Field(default_factory=list)
+    objectives: list[ExtractedObjective] = Field(default_factory=list)
+
+
+def _norm_objective(text: str) -> str:
+    return " ".join(text.split()).lower()
 
 
 def _prompt(text: str) -> str:
     return (
-        "Extract entities and typed relationships from the text as JSON.\n"
+        "Extract entities, typed relationships, and objectives from the text as JSON.\n"
         f"Entity types (prefer these, propose others only if needed): "
         f"{', '.join(sorted(ontology.ENTITY_TYPES))}.\n"
         f"Relationship predicates (prefer these): {', '.join(sorted(ontology.PREDICATES))}.\n"
+        "Objectives are concrete goals or intentions the author or subjects are trying to "
+        "achieve (e.g. 'ship Atlas by Q3', 'close the Series B'). Extract only clear goals, "
+        "not general facts. Phrase each as a short imperative.\n"
         'Return JSON {"entities":[{"name","type","confidence"}],'
-        '"relations":[{"subject","predicate","object","confidence"}]}. '
+        '"relations":[{"subject","predicate","object","confidence"}],'
+        '"objectives":[{"text","confidence"}]}. '
         "subject/object must be names present in entities. confidence is in [0,1].\n\n"
         f"TEXT:\n{text}"
     )
@@ -53,6 +67,7 @@ async def extract(session: AsyncSession, document_id: uuid.UUID) -> Extracted:
     )
     entities: dict[str, ExtractedEntity] = {}
     relations: dict[tuple[str, str, str], ExtractedRelation] = {}
+    objectives: dict[str, ExtractedObjective] = {}
     for chunk in chunks:
         result = await llm.complete_json(_prompt(chunk.text), Extracted)
         for e in result.entities:
@@ -71,4 +86,13 @@ async def extract(session: AsyncSession, document_id: uuid.UUID) -> Extracted:
                 relations[rk] = ExtractedRelation(
                     subject=r.subject, predicate=pred_norm, object=r.object, confidence=r.confidence
                 )
-    return Extracted(entities=list(entities.values()), relations=list(relations.values()))
+        for o in result.objectives:
+            ok = _norm_objective(o.text)
+            ocur = objectives.get(ok)
+            if ok and (ocur is None or o.confidence > ocur.confidence):
+                objectives[ok] = ExtractedObjective(text=o.text, confidence=o.confidence)
+    return Extracted(
+        entities=list(entities.values()),
+        relations=list(relations.values()),
+        objectives=list(objectives.values()),
+    )

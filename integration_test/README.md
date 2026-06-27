@@ -54,8 +54,8 @@ What it does:
 2. `odin ingest -d corpus` ingests the whole corpus into the admin's single brain,
    polling each job to completion against the real worker.
 3. Consolidates entities, then observes via the datastore + AGE graph and prints a report:
-   documents by state, chunk count, entities, relationships, resolved aliases, and sample
-   searches.
+   documents by state, chunk count, entities, relationships, resolved aliases, objectives
+   inferred from content (`origin=inferred`, `trust=proposed`), and sample searches.
 
 Capture the report for the design doc:
 

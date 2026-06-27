@@ -11,7 +11,7 @@ from odin.config import get_settings
 from odin.errors import NotFoundError
 from odin.graphdb import cypher
 from odin.models import Document, GraphMutation
-from odin.services import mutations, ontology
+from odin.services import mutations, objectives, ontology
 
 
 async def _cy(
@@ -176,6 +176,10 @@ async def upsert(
                 "source_doc_id": doc_id,
             },
             confidence=rel.confidence,
+        )
+    for obj in getattr(extracted, "objectives", []):
+        await objectives.infer(
+            session, doc.owner_user_id, doc_id, obj.text, obj.confidence
         )
 
 
