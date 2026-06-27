@@ -3,6 +3,8 @@ name = "odin"
 version = "0.0.0"
 description = "Odin — the seeker of knowledge (monorepo workspace root)"
 requires-python = ">=3.12"
+license = "AGPL-3.0-or-later"
+authors = [{ name = "Malay Hazarika", email = "malay.hazarika@gmail.com" }]
 
 # The root is a coordinator, not an installable package.
 [tool.uv]
