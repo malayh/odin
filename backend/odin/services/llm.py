@@ -22,7 +22,7 @@ def _client() -> Any:
 
 
 def _complete_json_sync[T: BaseModel](
-    model: str, system: str | None, prompt: str, schema: type[T]
+    model: str, system: str | None, prompt: str, schema: type[T], max_tokens: int | None
 ) -> T:
     messages: list[dict[str, str]] = []
     if system:
@@ -32,7 +32,10 @@ def _complete_json_sync[T: BaseModel](
     for _ in range(_MAX_ATTEMPTS):
         try:
             resp = _client().chat.completions.create(
-                model=model, messages=messages, response_format={"type": "json_object"}
+                model=model,
+                messages=messages,
+                response_format={"type": "json_object"},
+                max_tokens=max_tokens,
             )
             return schema.model_validate_json(resp.choices[0].message.content or "")
         except Exception as e:
@@ -41,7 +44,12 @@ def _complete_json_sync[T: BaseModel](
 
 
 async def complete_json[T: BaseModel](
-    prompt: str, schema: type[T], *, system: str | None = None
+    prompt: str,
+    schema: type[T],
+    *,
+    system: str | None = None,
+    model: str | None = None,
+    max_tokens: int | None = None,
 ) -> T:
-    model = get_settings().answer_model
-    return await asyncio.to_thread(_complete_json_sync, model, system, prompt, schema)
+    model = model or get_settings().answer_model
+    return await asyncio.to_thread(_complete_json_sync, model, system, prompt, schema, max_tokens)

@@ -295,7 +295,17 @@ Implementation log. Phases land incrementally; this section is the durable recor
   deferred). Objective is a **distinct `Objective` node** (full graph participant), referenced by `id`,
   with owner on the node. `objective add/list/drop` API+CLI. SERVES/ABOUT labels pre-created; no
   edge-emitting code yet (rides E).
-- [ ] **B — `deep_consolidate`**
+- [x] **B — `deep_consolidate`** — *shipped*. Replaces the naive `consolidate()` (kept `resolve()` as the
+  cheap ingest-time gate). `deep_consolidate(session, owner, *, keys=None)` — `keys=None` = all owner
+  entities (preserves harness); Phase D passes the working set. Evidence **dossier** per entity (aliases,
+  outgoing + incoming edge neighborhood, co-occurring entities, asserting documents via `Document.key`
+  as title proxy — all capped). **Judge = skeptic-veto + confidence vote**: an evidence-grounded skeptic
+  call (`{distinct, confidence, rationale}`) vetoes when it confidently cites a real distinction; else N
+  neutral judges (`{same, confidence, rationale}`) must reach quorum **and** clear a mean-confidence floor.
+  Merge via existing `merge_nodes` + `mutations.log(op="node_merge", rationale, confidence)`; union-find
+  clustering retained. **Split deferred** (see below). Tests extend `test_consolidation.py` (merge / veto /
+  confidence-floor / quorum). New config: `consolidation_cosine_gate=0.5`, `consolidation_neutral_judges=2`,
+  `consolidation_neutral_quorum=2`, `consolidation_confidence_floor=0.6`, `consolidation_skeptic_floor=0.7`.
 - [ ] **C — User-asserted same-as**
 - [ ] **D — Sleep job runtime**
 - [ ] **E — REM creative**
@@ -317,10 +327,21 @@ must exclude the `Objective` label even for orphans; they are dropped only by an
 `objective drop` (shipped). They **are consolidatable** — Phase-B `deep_consolidate` may merge
 objectives among themselves. Safe today by construction: objectives are a distinct `Objective` vlabel,
 so the current entity-only consolidation and `entity list`/`find` never touch them; B and D must honor
-this when built.
+this when built. **As shipped, B consolidates `Entity` nodes only** — objective-among-objective
+consolidation is a later extension (it just needs `deep_consolidate` to also draw candidates from the
+`Objective` vlabel).
+
+**Split decision (B, resolved):** `deep_consolidate` does **no split** — automatic split detection needs
+cluster detection (E) and a `proposed`/review surface (F), neither of which exists yet. Instead split
+will be a **manual, human-driven CLI op** in a later phase: `odin graph entity split <key> --by-doc
+<doc-key>` — carve everything a single document asserted (its mentions + edges, identified by
+`source_doc_id` provenance) out into a fresh node, leaving the rest. This is hand-specifiable (sidesteps
+the "awkward to specify by hand" problem the [Knowledge CLI](#knowledge-cli) flagged) and reuses existing
+provenance. Tracked here; not yet built.
 
 | date | phase | change |
 | --- | --- | --- |
 | 2026-06-27 | A, I | Started: objectives layer (explicit) + Knowledge CLI restructure + node-owner model. |
 | 2026-06-27 | A, I | Shipped. Migration `0006_objectives` (Objective/SERVES/ABOUT labels + entity-owner backfill); `owner` now stamped on every Entity node (ingest + manual) and Objective node; `objectives` service + `graph` editing helpers (`list_entities`/`create_entity`/`rename_entity`/`drop_entity`/manual edge add+rm; `read_entity` N-hop subgraph); graph API entity/edge/objective routes with `--dry-run`; CLI `odin graph` noun→verb restructure. Full suite green (129 passed); live CLI e2e verified. |
 | 2026-06-27 | B, D | Decision (resolving the parked open question): objectives are **never system-prunable** (D excludes the `Objective` label), **user-deletable** (`objective drop`, shipped), and **consolidatable** (B merges objectives among themselves). |
+| 2026-06-27 | B | Shipped `deep_consolidate` (entity-only): replaces naive `consolidate()`, keeps cheap `resolve()` at ingest. Evidence dossier (aliases + in/out neighborhood + co-occurring + asserting docs, capped) + **skeptic-veto + confidence-vote** judge; merge via `merge_nodes` + logged `node_merge` with rationale/confidence. Split deferred to a manual `entity split --by-doc` CLI op (later phase). New `consolidation_*` config. Full suite green (114 passed, 4 live-skipped). |

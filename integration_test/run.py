@@ -167,7 +167,7 @@ async def main() -> None:
 
     print("== consolidate ==")
     async with SessionLocal() as s:
-        n = await resolution.consolidate(s, user_id)
+        n = await resolution.deep_consolidate(s, user_id)
         await s.commit()
     print(f"  {n} merges\n")
 

@@ -27,7 +27,7 @@ class _FakeCompletions:
     def __init__(self, parent):
         self.parent = parent
 
-    def create(self, model, messages, response_format=None):
+    def create(self, model, messages, response_format=None, max_tokens=None):
         self.parent.calls.append(messages)
         if self.parent.fail_times > 0:
             self.parent.fail_times -= 1

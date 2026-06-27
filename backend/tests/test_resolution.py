@@ -30,7 +30,7 @@ def _fake_embed(monkeypatch):
 
 
 def _fake_confirm(monkeypatch, same):
-    async def confirm(prompt, schema, system=None):
+    async def confirm(prompt, schema, system=None, model=None, max_tokens=None):
         return schema(same=same)
 
     monkeypatch.setattr(resolution.llm, "complete_json", confirm)
@@ -87,7 +87,7 @@ async def test_resolve_merges_alias_into_existing_graph_entity(db_session, monke
 async def test_resolve_does_not_merge_dissimilar(db_session, monkeypatch):
     _fake_embed(monkeypatch)
 
-    async def confirm(prompt, schema, system=None):
+    async def confirm(prompt, schema, system=None, model=None, max_tokens=None):
         raise AssertionError("dissimilar pairs should not reach the LLM")
 
     monkeypatch.setattr(resolution.llm, "complete_json", confirm)

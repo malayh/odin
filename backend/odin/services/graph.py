@@ -263,6 +263,53 @@ async def docs_for_entities(
     return [(r[0], r[1]) for r in rows]
 
 
+async def owner_entity_incoming(
+    session: AsyncSession, owner: uuid.UUID, keys: list[str]
+) -> list[tuple[str, str, str]]:
+    if not keys:
+        return []
+    rows = await _cy(
+        session,
+        "MATCH (s:Entity)-[r:REL]->(e:Entity) "
+        "WHERE r.owner=$owner AND e.key IN $keys "
+        "RETURN e.key, r.predicate, s.name",
+        {"owner": str(owner), "keys": keys},
+        columns=("key", "predicate", "subject"),
+    )
+    return [(r[0], r[1], r[2]) for r in rows]
+
+
+async def entity_aliases(
+    session: AsyncSession, owner: uuid.UUID, keys: list[str]
+) -> list[tuple[str, str]]:
+    if not keys:
+        return []
+    rows = await _cy(
+        session,
+        "MATCH (:Document)-[m:MENTIONS]->(e:Entity) "
+        "WHERE m.owner=$owner AND e.key IN $keys "
+        "RETURN DISTINCT e.key, m.alias",
+        {"owner": str(owner), "keys": keys},
+        columns=("key", "alias"),
+    )
+    return [(r[0], r[1]) for r in rows]
+
+
+async def doc_keys(session: AsyncSession, doc_ids: list[str]) -> dict[str, str]:
+    ids = []
+    for d in doc_ids:
+        try:
+            ids.append(uuid.UUID(d))
+        except (ValueError, TypeError):
+            continue
+    if not ids:
+        return {}
+    rows = (
+        await session.execute(select(Document.id, Document.key).where(Document.id.in_(ids)))
+    ).all()
+    return {str(r[0]): r[1] for r in rows}
+
+
 async def read_entity(
     session: AsyncSession, owner: uuid.UUID, key: str, depth: int = 1
 ) -> dict[str, Any] | None:

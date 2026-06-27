@@ -15,7 +15,7 @@ async def _fake_embed_texts(texts):
     return [[1.0] + [0.0] * 1535 for _ in texts]
 
 
-async def _fake_llm(prompt, schema, system=None):
+async def _fake_llm(prompt, schema, system=None, model=None, max_tokens=None):
     if schema.__name__ == "Extracted":
         if "Globex" in prompt:
             return Extracted(

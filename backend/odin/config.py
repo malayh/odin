@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     openrouter_api_key: str | None = None
     openrouter_base_url: str = "https://openrouter.ai/api/v1"
     answer_model: str = "z-ai/glm-5.2"
+    tier2_model: str = "deepseek/deepseek-v4-pro"
 
     # --- embeddings ---
     openai_api_key: str | None = None
@@ -51,6 +52,13 @@ class Settings(BaseSettings):
 
     # --- worker ---
     worker_max_attempts: int = 5
+
+    # --- consolidation (deep_consolidate: dossier + skeptic-veto + confidence vote) ---
+    consolidation_cosine_gate: float = 0.5
+    consolidation_neutral_judges: int = 2
+    consolidation_neutral_quorum: int = 2
+    consolidation_confidence_floor: float = 0.6
+    consolidation_skeptic_floor: float = 0.7
 
 
 @lru_cache
