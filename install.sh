@@ -8,7 +8,8 @@ COMPOSE_FILE="$ODIN_DIR/docker-compose.prod.yaml"
 ENV_FILE="$ODIN_DIR/.env"
 CONFIG_FILE="$ODIN_DIR/config.yaml"
 SERVER_URL="http://localhost:8000"
-RELEASE_BASE="https://github.com/$REPO/releases/latest/download"
+COMPOSE_URL="https://raw.githubusercontent.com/$REPO/main/docker-compose.prod.yaml"
+BINARY_URL="https://github.com/$REPO/releases/download/cli/odin-linux-x86_64"
 
 say() { printf '%s\n' "$*"; }
 err() { printf 'error: %s\n' "$*" >&2; }
@@ -47,10 +48,10 @@ docker info >/dev/null 2>&1 || die "the Docker daemon is not running"
 mkdir -p "$BIN_DIR" "$ODIN_DIR/.data/postgres" "$ODIN_DIR/.data/minio"
 
 say "Downloading docker-compose.prod.yaml"
-curl -fsSL "$RELEASE_BASE/docker-compose.prod.yaml" -o "$COMPOSE_FILE"
+curl -fsSL "$COMPOSE_URL" -o "$COMPOSE_FILE"
 
 say "Downloading odin CLI binary"
-curl -fsSL "$RELEASE_BASE/odin-linux-x86_64" -o "$BIN_DIR/odin"
+curl -fsSL "$BINARY_URL" -o "$BIN_DIR/odin"
 chmod +x "$BIN_DIR/odin"
 
 if [ ! -f "$ENV_FILE" ]; then

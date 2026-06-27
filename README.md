@@ -74,16 +74,21 @@ Prefer to inspect first? Download `install.sh` and run it locally instead of pip
 
 ## Cutting a release (maintainer)
 
-One-time prerequisites: `docker login`, `gh auth login`, and `uv sync`.
+Components are versioned independently — release just the CLI, just the server, just the
+database, or all at once. One-time prerequisites: `docker login` and `gh auth login`.
 
 ```bash
-./release.sh v0.1.0
+./release.sh cli v0.3.0        # build + publish the CLI binary
+./release.sh backend v0.2.0    # build + push the API/worker image
+./release.sh postgres v1.0.0   # build + push the Postgres (pgvector + AGE) image
+./release.sh all v0.1.0        # all three at one version
 ```
 
-This builds and pushes `malayh/odin-backend` and `malayh/odin-postgres` (tagged `0.1.0` +
-`latest`), builds the `odin-linux-x86_64` binary in a `linux/amd64` container, stamps the
-version into `docker-compose.prod.yaml`, tags the commit, and creates the GitHub Release with
-the binary, compose file, and `install.sh` attached.
+Each image target builds + pushes `malayh/odin-<comp>:<version>` (and `:latest`), pins that
+version in `docker-compose.prod.yaml`, commits it, and pushes to `main` — installers read the
+pinned compose from there. The `cli` target builds the `odin-linux-x86_64` binary in a
+`linux/amd64` container and uploads it to the rolling `cli` GitHub release, which `install.sh`
+downloads. Each run also tags the commit (`backend-v*`, `postgres-v*`, `cli-v*`).
 
 ## Dev setup
 
