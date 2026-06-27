@@ -74,7 +74,7 @@ async def test_resolve_merges_alias_into_existing_graph_entity(db_session, monke
         state=DocState.indexed,
     )
     await graph.upsert_document(db_session, doc)
-    await graph.upsert_entity(db_session, "org:helios robotics", "Helios Robotics", "Org")
+    await graph.upsert_entity(db_session, "org:helios robotics", "Helios Robotics", "Org", str(uid))
     await graph.add_mention(
         db_session, doc, "org:helios robotics", "Helios Robotics", "extracted", 1.0, "x"
     )

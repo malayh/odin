@@ -98,3 +98,111 @@ async def test_history_excludes_other_users_provenance(client, admin, db_session
     assert "product:anvil" in text
     assert "project:secret" not in text
     assert str(doc_b.id) not in text
+
+
+async def test_entity_add_list_show(client, admin, db_session):
+    _, token = admin
+    client.headers["Authorization"] = f"Bearer {token}"
+
+    r = await client.post("/graph/entities", json={"type": "Person", "name": "Bob"})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["applied"] is True
+    assert body["id"] == "person:bob"
+
+    r = await client.get("/graph/entities", params={"type": "Person"})
+    assert r.status_code == 200
+    assert "person:bob" in {e["key"] for e in r.json()}
+
+    r = await client.get(f"/graph/entities/{quote('person:bob', safe='')}")
+    assert r.status_code == 200
+    assert r.json()["name"] == "Bob"
+
+
+async def test_edge_add_reflected_in_show(client, admin, db_session):
+    _, token = admin
+    client.headers["Authorization"] = f"Bearer {token}"
+    await client.post("/graph/entities", json={"type": "Person", "name": "Bob"})
+    await client.post("/graph/entities", json={"type": "Org", "name": "Helios"})
+
+    r = await client.post(
+        "/graph/edges",
+        json={"subject_key": "person:bob", "predicate": "works_at", "object_key": "org:helios"},
+    )
+    assert r.status_code == 200
+    assert r.json()["applied"] is True
+
+    r = await client.get(f"/graph/entities/{quote('person:bob', safe='')}")
+    rels = {(x["predicate"], x["object_key"]) for x in r.json()["relationships"]}
+    assert ("WORKS_AT", "org:helios") in rels
+
+
+async def test_entity_rename_repoints_edges(client, admin, db_session):
+    _, token = admin
+    client.headers["Authorization"] = f"Bearer {token}"
+    await client.post("/graph/entities", json={"type": "Person", "name": "Bob"})
+    await client.post("/graph/entities", json={"type": "Org", "name": "Helios"})
+    await client.post(
+        "/graph/edges",
+        json={"subject_key": "person:bob", "predicate": "works_at", "object_key": "org:helios"},
+    )
+
+    r = await client.patch("/graph/entities/person:bob", json={"new_name": "Bobby"})
+    assert r.status_code == 200
+    assert r.json()["id"] == "person:bobby"
+
+    r = await client.get(f"/graph/entities/{quote('person:bobby', safe='')}")
+    rels = {(x["predicate"], x["object_key"]) for x in r.json()["relationships"]}
+    assert ("WORKS_AT", "org:helios") in rels
+
+    r = await client.get(f"/graph/entities/{quote('person:bob', safe='')}")
+    assert r.status_code == 404
+
+
+async def test_entity_drop(client, admin, db_session):
+    _, token = admin
+    client.headers["Authorization"] = f"Bearer {token}"
+    await client.post("/graph/entities", json={"type": "Person", "name": "Bob"})
+
+    r = await client.delete("/graph/entities/person:bob")
+    assert r.status_code == 200
+    assert r.json()["applied"] is True
+
+    r = await client.get(f"/graph/entities/{quote('person:bob', safe='')}")
+    assert r.status_code == 404
+
+
+async def test_dry_run_writes_nothing(client, admin, db_session):
+    _, token = admin
+    client.headers["Authorization"] = f"Bearer {token}"
+    await client.post("/graph/entities", json={"type": "Person", "name": "Bob"})
+
+    r = await client.delete("/graph/entities/person:bob", params={"dry_run": True})
+    assert r.status_code == 200
+    body = r.json()
+    assert body["applied"] is False
+    assert "would drop" in body["summary"]
+
+    r = await client.get(f"/graph/entities/{quote('person:bob', safe='')}")
+    assert r.status_code == 200
+
+
+async def test_objective_api_roundtrip(client, admin, db_session):
+    _, token = admin
+    client.headers["Authorization"] = f"Bearer {token}"
+
+    r = await client.post("/graph/objectives", json={"text": "ship L5"})
+    assert r.status_code == 200
+    oid = r.json()["id"]
+    assert oid
+
+    r = await client.get("/graph/objectives")
+    assert r.status_code == 200
+    assert [o["text"] for o in r.json()] == ["ship L5"]
+
+    r = await client.delete(f"/graph/objectives/{oid}")
+    assert r.status_code == 200
+    assert r.json()["applied"] is True
+
+    r = await client.get("/graph/objectives")
+    assert r.json() == []

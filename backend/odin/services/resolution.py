@@ -199,7 +199,7 @@ async def consolidate(
         for m in members:
             if m == canon:
                 continue
-            await graph.merge_nodes(session, ckey, cname, ctype, keys[m])
+            await graph.merge_nodes(session, ckey, cname, ctype, keys[m], str(owner))
             await mutations.log(
                 session,
                 actor="resolver",

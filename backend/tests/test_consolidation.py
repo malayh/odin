@@ -36,8 +36,8 @@ async def test_merge_nodes_repoints_edges_and_aliases(worker_db):
         )
         doc2 = _doc(uid)
         await graph.upsert_document(s, doc2)
-        await graph.upsert_entity(s, "org:helios", "Helios", "Org")
-        await graph.upsert_entity(s, "place:austin", "Austin", "Place")
+        await graph.upsert_entity(s, "org:helios", "Helios", "Org", str(uid))
+        await graph.upsert_entity(s, "place:austin", "Austin", "Place", str(uid))
         await graph.add_mention(s, doc2, "org:helios", "Helios", "extracted", 0.9, "m")
         await graph.add_relationship(
             s, doc2, "org:helios", "LOCATED_IN", "place:austin", "extracted", 0.9, "m"
@@ -48,7 +48,9 @@ async def test_merge_nodes_repoints_edges_and_aliases(worker_db):
         await s.commit()
 
     async with worker_db() as s:
-        await graph.merge_nodes(s, "org:helios robotics", "Helios Robotics", "Org", "org:helios")
+        await graph.merge_nodes(
+            s, "org:helios robotics", "Helios Robotics", "Org", "org:helios", str(uid)
+        )
         await s.commit()
 
     async with worker_db() as s:
@@ -72,7 +74,7 @@ async def test_consolidate_merges_duplicate_nodes(worker_db, monkeypatch):
         await graph.upsert(s, doc1, _ex([_ent("Helios Robotics", "Org")], []), {}, "m")
         doc2 = _doc(uid)
         await graph.upsert_document(s, doc2)
-        await graph.upsert_entity(s, "org:helios", "Helios", "Org")
+        await graph.upsert_entity(s, "org:helios", "Helios", "Org", str(uid))
         await graph.add_mention(s, doc2, "org:helios", "Helios", "extracted", 0.9, "m")
         await s.commit()
 

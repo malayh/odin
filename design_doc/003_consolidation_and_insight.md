@@ -284,3 +284,43 @@ standalone editing verbs + restructure as a small pass after C.
   rides the existing extraction pass keyed on goal/intent language. May be noisy — `proposed` + confirm
   is the safety valve.
 - **Schema integration (re-typing, abstraction)** is deliberately out of scope this phase.
+
+---
+
+## Progress
+
+Implementation log. Phases land incrementally; this section is the durable record.
+
+- [x] **A — Objectives layer** — *explicit source shipped* (note-inference + community promotion
+  deferred). Objective is a **distinct `Objective` node** (full graph participant), referenced by `id`,
+  with owner on the node. `objective add/list/drop` API+CLI. SERVES/ABOUT labels pre-created; no
+  edge-emitting code yet (rides E).
+- [ ] **B — `deep_consolidate`**
+- [ ] **C — User-asserted same-as**
+- [ ] **D — Sleep job runtime**
+- [ ] **E — REM creative**
+- [ ] **F — Trust loop**
+- [ ] **G — Isolation hardening**
+- [ ] **H — Live run + record**
+- [x] **I — Knowledge CLI** — *editing surface shipped*: noun→verb restructure + deterministic
+  LLM-free verbs `entity find/list/show/history/add/rename/drop`, `edge add/rm`,
+  `entity show --depth/--tree`, `--dry-run` on mutations, `--json` on reads. `entity merge` (rides C)
+  and `insight confirm/reject/list` (rides F) deferred.
+
+**Cross-cutting decision (A+I):** every **Entity *and* Objective node carries `owner`** (per-user, on
+the node) — not just edges. Manual entities/objectives are born owner-stamped and thus listable;
+`entity list`/`objective list` query node `owner`. Migration `0006` backfills `owner` onto existing
+Entity nodes from their `MENTIONS` edge owner.
+
+**Objective lifecycle policy (resolved):** objectives are **never system-prunable** — Phase-D pruning
+must exclude the `Objective` label even for orphans; they are dropped only by an explicit human
+`objective drop` (shipped). They **are consolidatable** — Phase-B `deep_consolidate` may merge
+objectives among themselves. Safe today by construction: objectives are a distinct `Objective` vlabel,
+so the current entity-only consolidation and `entity list`/`find` never touch them; B and D must honor
+this when built.
+
+| date | phase | change |
+| --- | --- | --- |
+| 2026-06-27 | A, I | Started: objectives layer (explicit) + Knowledge CLI restructure + node-owner model. |
+| 2026-06-27 | A, I | Shipped. Migration `0006_objectives` (Objective/SERVES/ABOUT labels + entity-owner backfill); `owner` now stamped on every Entity node (ingest + manual) and Objective node; `objectives` service + `graph` editing helpers (`list_entities`/`create_entity`/`rename_entity`/`drop_entity`/manual edge add+rm; `read_entity` N-hop subgraph); graph API entity/edge/objective routes with `--dry-run`; CLI `odin graph` noun→verb restructure. Full suite green (129 passed); live CLI e2e verified. |
+| 2026-06-27 | B, D | Decision (resolving the parked open question): objectives are **never system-prunable** (D excludes the `Objective` label), **user-deletable** (`objective drop`, shipped), and **consolidatable** (B merges objectives among themselves). |

@@ -89,8 +89,74 @@ class Client:
     def find_entities(self, q: str) -> Any:
         return self._request("GET", "/graph/entities", params={"q": q})
 
-    def get_entity(self, key: str) -> Any:
-        return self._request("GET", f"/graph/entities/{key}")
+    def list_entities(
+        self, type_: str | None = None, limit: int = 50, offset: int = 0
+    ) -> Any:
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if type_ is not None:
+            params["type"] = type_
+        return self._request("GET", "/graph/entities", params=params)
+
+    def get_entity(self, key: str, depth: int = 1) -> Any:
+        return self._request("GET", f"/graph/entities/{key}", params={"depth": depth})
 
     def entity_history(self, key: str) -> Any:
         return self._request("GET", f"/graph/entities/{key}/history")
+
+    def add_entity(self, type_: str, name: str, dry_run: bool = False) -> Any:
+        return self._request(
+            "POST",
+            "/graph/entities",
+            json={"type": type_, "name": name},
+            params={"dry_run": dry_run},
+        )
+
+    def rename_entity(self, key: str, new_name: str, dry_run: bool = False) -> Any:
+        return self._request(
+            "PATCH",
+            f"/graph/entities/{key}",
+            json={"new_name": new_name},
+            params={"dry_run": dry_run},
+        )
+
+    def drop_entity(self, key: str, dry_run: bool = False) -> Any:
+        return self._request(
+            "DELETE", f"/graph/entities/{key}", params={"dry_run": dry_run}
+        )
+
+    def add_edge(
+        self, subject_key: str, predicate: str, object_key: str, dry_run: bool = False
+    ) -> Any:
+        return self._request(
+            "POST",
+            "/graph/edges",
+            json={"subject_key": subject_key, "predicate": predicate, "object_key": object_key},
+            params={"dry_run": dry_run},
+        )
+
+    def remove_edge(
+        self, subject_key: str, predicate: str, object_key: str, dry_run: bool = False
+    ) -> Any:
+        return self._request(
+            "DELETE",
+            "/graph/edges",
+            params={
+                "subject_key": subject_key,
+                "predicate": predicate,
+                "object_key": object_key,
+                "dry_run": dry_run,
+            },
+        )
+
+    def add_objective(self, text: str, dry_run: bool = False) -> Any:
+        return self._request(
+            "POST", "/graph/objectives", json={"text": text}, params={"dry_run": dry_run}
+        )
+
+    def list_objectives(self) -> Any:
+        return self._request("GET", "/graph/objectives")
+
+    def drop_objective(self, objective_id: str, dry_run: bool = False) -> Any:
+        return self._request(
+            "DELETE", f"/graph/objectives/{objective_id}", params={"dry_run": dry_run}
+        )

@@ -2,7 +2,19 @@
 
 from odin.schemas.ask import AskCitation, AskIn, AskOut, AskTurn
 from odin.schemas.auth import WhoamiOut
-from odin.schemas.graph import EntityOut, EntitySummary, MutationOut, RelationshipOut
+from odin.schemas.graph import (
+    EdgeIn,
+    EntityIn,
+    EntityOut,
+    EntityRenameIn,
+    EntitySummary,
+    MutationOut,
+    MutationResult,
+    ObjectiveIn,
+    ObjectiveOut,
+    RelationshipOut,
+    SubgraphEdge,
+)
 from odin.schemas.ingest import IngestOut
 from odin.schemas.job import JobOut
 from odin.schemas.search import SearchHit, SearchIn, SearchOut
@@ -16,12 +28,19 @@ __all__ = [
     "AskTurn",
     "CreateTokenIn",
     "CreateUserIn",
+    "EdgeIn",
+    "EntityIn",
     "EntityOut",
+    "EntityRenameIn",
     "EntitySummary",
     "IngestOut",
     "JobOut",
     "MutationOut",
+    "MutationResult",
+    "ObjectiveIn",
+    "ObjectiveOut",
     "RelationshipOut",
+    "SubgraphEdge",
     "SearchHit",
     "SearchIn",
     "SearchOut",

@@ -8,6 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from odin.config import get_settings
+from odin.errors import NotFoundError
 from odin.graphdb import cypher
 from odin.models import Document, GraphMutation
 from odin.services import mutations, ontology
@@ -39,12 +40,15 @@ async def upsert_document(session: AsyncSession, doc: Document) -> None:
     )
 
 
-async def upsert_entity(session: AsyncSession, key: str, name: str, type_: str) -> None:
+async def upsert_entity(
+    session: AsyncSession, key: str, name: str, type_: str, owner: str
+) -> None:
     await _cy(
         session,
         "MERGE (e:Entity {key:$key}) "
-        "SET e.name=$name, e.type=$type, e.created_at=coalesce(e.created_at, $now)",
-        {"key": key, "name": name, "type": type_, "now": _now()},
+        "SET e.name=$name, e.type=$type, e.owner=$owner, "
+        "e.created_at=coalesce(e.created_at, $now)",
+        {"key": key, "name": name, "type": type_, "owner": owner, "now": _now()},
     )
 
 
@@ -135,7 +139,7 @@ async def upsert(
         else:
             key, name = raw_key, ent.name
             type_, _ = ontology.normalize_type(ent.type)
-        await upsert_entity(session, key, name, type_)
+        await upsert_entity(session, key, name, type_, str(doc.owner_user_id))
         await mutations.log(
             session,
             actor="extractor",
@@ -256,7 +260,7 @@ async def docs_for_entities(
 
 
 async def read_entity(
-    session: AsyncSession, owner: uuid.UUID, key: str
+    session: AsyncSession, owner: uuid.UUID, key: str, depth: int = 1
 ) -> dict[str, Any] | None:
     node = await _cy(
         session,
@@ -293,7 +297,230 @@ async def read_entity(
         "relationships": [
             {"predicate": r[0], "object_key": r[1], "source_doc_id": r[2]} for r in rels
         ],
+        "subgraph": await _subgraph(session, owner, key, depth),
     }
+
+
+async def _subgraph(
+    session: AsyncSession, owner: uuid.UUID, key: str, depth: int
+) -> list[dict[str, str]]:
+    seen = {key}
+    frontier = [key]
+    edges: dict[tuple[str, str, str], dict[str, str]] = {}
+    for _ in range(max(depth, 1)):
+        if not frontier:
+            break
+        next_frontier: list[str] = []
+        for subj, pred, obj, _sdid, _conf in await entity_neighbors(session, owner, frontier):
+            edges[(subj, pred, obj)] = {
+                "subject_key": subj,
+                "predicate": pred,
+                "object_key": obj,
+            }
+            if obj not in seen:
+                seen.add(obj)
+                next_frontier.append(obj)
+        frontier = next_frontier
+    return list(edges.values())
+
+
+async def list_entities(
+    session: AsyncSession,
+    owner: uuid.UUID,
+    type_: str | None = None,
+    limit: int = 50,
+    offset: int = 0,
+) -> list[tuple[str, str, str]]:
+    params: dict[str, Any] = {"owner": str(owner), "limit": limit, "offset": offset}
+    type_clause = ""
+    if type_ is not None:
+        type_clause = "AND e.type=$type "
+        params["type"] = type_
+    rows = await _cy(
+        session,
+        "MATCH (e:Entity) WHERE e.owner=$owner " + type_clause + "RETURN e.key, e.name, e.type "
+        "ORDER BY e.key SKIP $offset LIMIT $limit",
+        params,
+        columns=("key", "name", "type"),
+    )
+    return [(r[0], r[1], r[2]) for r in rows]
+
+
+async def create_entity(
+    session: AsyncSession,
+    owner: uuid.UUID,
+    type_raw: str,
+    name: str,
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    type_, _ = ontology.normalize_type(type_raw)
+    key = ontology.entity_key(name, type_)
+    if dry_run:
+        return {"applied": False, "summary": f"would create entity {key}"}
+    await _cy(
+        session,
+        "MERGE (e:Entity {key:$key}) "
+        "SET e.name=$name, e.type=$type, e.owner=$owner, e.origin='manual', "
+        "e.trust='confirmed', e.created_at=coalesce(e.created_at, $now)",
+        {"key": key, "name": name, "type": type_, "owner": str(owner), "now": _now()},
+    )
+    await mutations.log(
+        session,
+        actor="user",
+        op="entity_add",
+        payload={"key": key, "name": name, "type": type_, "owner": str(owner)},
+    )
+    return {"applied": True, "summary": f"created entity {key}", "id": key}
+
+
+async def rename_entity(
+    session: AsyncSession, owner: uuid.UUID, key: str, new_name: str, *, dry_run: bool = False
+) -> dict[str, Any]:
+    node = await _cy(
+        session,
+        "MATCH (e:Entity {key:$key}) WHERE e.owner=$owner RETURN e.type",
+        {"key": key, "owner": str(owner)},
+        columns=("type",),
+    )
+    if not node:
+        raise NotFoundError(f"entity not found: {key}")
+    type_ = node[0][0]
+    new_key = ontology.entity_key(new_name, type_)
+    if dry_run:
+        return {"applied": False, "summary": f"would rename {key} -> {new_key}"}
+    await merge_nodes(session, new_key, new_name, type_, key, str(owner))
+    await mutations.log(
+        session,
+        actor="user",
+        op="entity_rename",
+        payload={"key": new_key, "from_key": key, "to_key": new_key, "owner": str(owner)},
+    )
+    return {"applied": True, "summary": f"renamed {key} -> {new_key}", "id": new_key}
+
+
+async def drop_entity(
+    session: AsyncSession, owner: uuid.UUID, key: str, *, dry_run: bool = False
+) -> dict[str, Any]:
+    node = await _cy(
+        session,
+        "MATCH (e:Entity {key:$key}) WHERE e.owner=$owner RETURN e.key",
+        {"key": key, "owner": str(owner)},
+        columns=("key",),
+    )
+    if not node:
+        raise NotFoundError(f"entity not found: {key}")
+    if dry_run:
+        return {"applied": False, "summary": f"would drop entity {key} and detach its edges"}
+    await _cy(
+        session,
+        "MATCH (e:Entity {key:$key}) WHERE e.owner=$owner DETACH DELETE e",
+        {"key": key, "owner": str(owner)},
+    )
+    await mutations.log(
+        session,
+        actor="user",
+        op="entity_drop",
+        payload={"key": key, "owner": str(owner)},
+    )
+    return {"applied": True, "summary": f"dropped entity {key}", "id": key}
+
+
+async def add_manual_relationship(
+    session: AsyncSession,
+    owner: uuid.UUID,
+    subject_key: str,
+    predicate_raw: str,
+    object_key: str,
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    predicate, _ = ontology.normalize_predicate(predicate_raw)
+    for endpoint in (subject_key, object_key):
+        found = await _cy(
+            session,
+            "MATCH (e:Entity {key:$key}) WHERE e.owner=$owner RETURN e.key",
+            {"key": endpoint, "owner": str(owner)},
+            columns=("key",),
+        )
+        if not found:
+            raise NotFoundError(f"entity not found: {endpoint}")
+    summary = f"{subject_key} -{predicate}-> {object_key}"
+    if dry_run:
+        return {"applied": False, "summary": f"would add edge {summary}"}
+    await _cy(
+        session,
+        "MATCH (s:Entity {key:$subj}), (o:Entity {key:$obj}) "
+        "CREATE (s)-[:REL {predicate:$predicate, owner:$owner, origin:'manual', "
+        "trust:'confirmed', confidence:1.0, method:'manual', created_at:$now}]->(o)",
+        {
+            "subj": subject_key,
+            "obj": object_key,
+            "predicate": predicate,
+            "owner": str(owner),
+            "now": _now(),
+        },
+    )
+    await mutations.log(
+        session,
+        actor="user",
+        op="edge_add",
+        payload={
+            "subject_key": subject_key,
+            "predicate": predicate,
+            "object_key": object_key,
+            "owner": str(owner),
+        },
+    )
+    return {"applied": True, "summary": f"added edge {summary}"}
+
+
+async def remove_relationship(
+    session: AsyncSession,
+    owner: uuid.UUID,
+    subject_key: str,
+    predicate_raw: str,
+    object_key: str,
+    *,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    predicate, _ = ontology.normalize_predicate(predicate_raw)
+    params = {
+        "subj": subject_key,
+        "obj": object_key,
+        "predicate": predicate,
+        "owner": str(owner),
+    }
+    matched = await _cy(
+        session,
+        "MATCH (s:Entity {key:$subj})-[r:REL {predicate:$predicate}]->(o:Entity {key:$obj}) "
+        "WHERE r.owner=$owner RETURN count(r)",
+        params,
+        columns=("n",),
+    )
+    count = matched[0][0] if matched else 0
+    summary = f"{subject_key} -{predicate}-> {object_key}"
+    if dry_run:
+        return {"applied": False, "summary": f"would remove {count} edge(s) {summary}"}
+    if count:
+        await _cy(
+            session,
+            "MATCH (s:Entity {key:$subj})-[r:REL {predicate:$predicate}]->"
+            "(o:Entity {key:$obj}) WHERE r.owner=$owner DELETE r",
+            params,
+        )
+        await mutations.log(
+            session,
+            actor="user",
+            op="edge_rm",
+            payload={
+                "subject_key": subject_key,
+                "predicate": predicate,
+                "object_key": object_key,
+                "owner": str(owner),
+            },
+        )
+    return {"applied": True, "summary": f"removed {count} edge(s) {summary}"}
 
 
 async def find_entities(
@@ -351,7 +578,11 @@ async def apply_inverse(session: AsyncSession, op: str, payload: dict[str, Any])
     if op != "merge":
         raise NotImplementedError(f"undo not supported for op: {op}")
     await upsert_entity(
-        session, payload["absorbed_key"], payload["absorbed_name"], payload["absorbed_type"]
+        session,
+        payload["absorbed_key"],
+        payload["absorbed_name"],
+        payload["absorbed_type"],
+        payload["owner"],
     )
     await _cy(
         session,
@@ -387,10 +618,11 @@ async def merge_nodes(
     canonical_name: str,
     canonical_type: str,
     absorbed_key: str,
+    owner: str,
 ) -> None:
     if absorbed_key == canonical_key:
         return
-    await upsert_entity(session, canonical_key, canonical_name, canonical_type)
+    await upsert_entity(session, canonical_key, canonical_name, canonical_type, owner)
     mentions = await _cy(
         session,
         "MATCH (d:Document)-[m:MENTIONS]->(:Entity {key:$absorbed}) "

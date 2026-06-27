@@ -53,7 +53,7 @@ async def test_undo_a_merge_restores_absorbed_entity(worker_db):
     d = SimpleNamespace(id=uuid.uuid4(), owner_user_id=uid)
     async with worker_db() as s:
         await graph.upsert_document(s, d)
-        await graph.upsert_entity(s, "person:robert", "Robert", "Person")
+        await graph.upsert_entity(s, "person:robert", "Robert", "Person", str(uid))
         await graph.add_mention(s, d, "person:robert", "Robert", "extracted", 0.9, "m")
         await graph.add_mention(s, d, "person:robert", "Bob", "merged", 0.9, "m")
         mid = await mutations.log(
