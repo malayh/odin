@@ -1,6 +1,7 @@
 """Push local files/directories to the ingest API."""
 
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
 import typer
@@ -26,6 +27,17 @@ def _poll(client: Client, job_id: str, *, timeout: float = 300.0, interval: floa
     return "timeout"
 
 
+def _ingest_one(client: Client, directory: Path, path: Path) -> dict:
+    key = str(path.relative_to(directory))
+    try:
+        res = client.ingest(path, key)
+        state = _poll(client, res["job_id"]) if res.get("job_id") else "deduped"
+    except ApiError as e:
+        res = {}
+        state = f"error: {e.message}"
+    return {"key": key, "state": state, "document_id": res.get("document_id")}
+
+
 @app.callback(invoke_without_command=True)
 def ingest(
     directory: Path = typer.Option(
@@ -37,6 +49,9 @@ def ingest(
         dir_okay=True,
         help="Directory to ingest.",
     ),
+    concurrency: int = typer.Option(
+        8, "-c", "--concurrency", min=1, help="Max files to ingest in parallel."
+    ),
     json_out: bool = typer.Option(False, "--json"),
 ) -> None:
     cfg = require()
@@ -47,16 +62,13 @@ def ingest(
         output.fail(f"no ingestible files (.txt/.md/.html) under {directory}")
     results = []
     with Client(cfg) as client:
-        for path in files:
-            key = str(path.relative_to(directory))
-            try:
-                res = client.ingest(path, key)
-                state = _poll(client, res["job_id"]) if res.get("job_id") else "deduped"
-            except ApiError as e:
-                res = {}
-                state = f"error: {e.message}"
-            results.append({"key": key, "state": state, "document_id": res.get("document_id")})
-            if not json_out:
-                output.console.print(f"{key} → {state}")
+        with ThreadPoolExecutor(max_workers=min(concurrency, len(files))) as pool:
+            futures = {pool.submit(_ingest_one, client, directory, path): path for path in files}
+            for future in as_completed(futures):
+                result = future.result()
+                results.append(result)
+                if not json_out:
+                    output.console.print(f"{result['key']} → {result['state']}")
+    results.sort(key=lambda r: r["key"])
     if json_out:
         output.print_json(results)
