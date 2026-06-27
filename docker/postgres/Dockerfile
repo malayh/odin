@@ -17,4 +17,6 @@ RUN git clone --depth 1 --branch "PG16/${AGE_VERSION}" https://github.com/apache
     && make install PG_CONFIG=/usr/bin/pg_config \
     && rm -rf /tmp/age
 
+COPY init.sql /docker-entrypoint-initdb.d/init.sql
+
 USER postgres

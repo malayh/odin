@@ -56,6 +56,35 @@ odin/
 - **AI:** cloud-only — Claude for generation/extraction, a hosted embedding model
   (swappable via a model registry), and a hosted reranker.
 
+## Install (production)
+
+Runs the full stack (Postgres + MinIO + API + worker) from pinned images on Docker Hub and
+drops a standalone `odin` CLI binary in `~/.odin/bin`. Requires only Docker + Docker Compose.
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/malayh/odin/main/install.sh | bash
+```
+
+The installer creates `~/.odin/` (config, `.data/` for Postgres + MinIO, the CLI binary),
+prompts once for your OpenRouter and OpenAI keys, runs database migrations, bootstraps the
+initial admin, and logs the CLI in. Re-running it upgrades in place: it re-pulls the latest
+compose file and images and is otherwise idempotent (your `.env`, data, and login are kept).
+
+Prefer to inspect first? Download `install.sh` and run it locally instead of piping to a shell.
+
+## Cutting a release (maintainer)
+
+One-time prerequisites: `docker login`, `gh auth login`, and `uv sync`.
+
+```bash
+./release.sh v0.1.0
+```
+
+This builds and pushes `malayh/odin-backend` and `malayh/odin-postgres` (tagged `0.1.0` +
+`latest`), builds the `odin-linux-x86_64` binary in a `linux/amd64` container, stamps the
+version into `docker-compose.prod.yaml`, tags the commit, and creates the GitHub Release with
+the binary, compose file, and `install.sh` attached.
+
 ## Dev setup
 
 Common tasks are wrapped in a [`justfile`](./justfile) (`just --list` to see them all):

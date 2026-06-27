@@ -1,0 +1,64 @@
+name: odin
+
+services:
+  postgres:
+    image: malayh/odin-postgres:latest
+    environment:
+      POSTGRES_USER: odin
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: odin
+    volumes:
+      - ./.data/postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U odin"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  minio:
+    image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+    entrypoint: [""]
+    command: ["sh", "-c", "mkdir -p /data/odin-data && minio server --console-address :9001 --quiet /data"]
+    environment:
+      MINIO_ROOT_USER: ${AWS_ACCESS_KEY_ID}
+      MINIO_ROOT_PASSWORD: ${AWS_SECRET_ACCESS_KEY}
+    volumes:
+      - ./.data/minio:/data
+    restart: unless-stopped
+
+  migrate:
+    image: malayh/odin-backend:latest
+    working_dir: /app/backend
+    command: ["alembic", "upgrade", "head"]
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    image: malayh/odin-backend:latest
+    command: ["uvicorn", "odin.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    env_file: .env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
+
+  worker:
+    image: malayh/odin-backend:latest
+    command: ["python", "-m", "odin.worker"]
+    env_file: .env
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
+    restart: unless-stopped
