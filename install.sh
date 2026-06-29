@@ -47,6 +47,7 @@ docker info >/dev/null 2>&1 || die "the Docker daemon is not running"
 
 mkdir -p "$BIN_DIR" "$ODIN_DIR/.data/postgres" "$ODIN_DIR/.data/minio"
 chmod 777 "$ODIN_DIR/.data/postgres" "$ODIN_DIR/.data/minio"
+cd "$ODIN_DIR" || die "cannot enter $ODIN_DIR"
 
 say "Downloading docker-compose.yaml"
 curl -fsSL "$COMPOSE_URL" -o "$COMPOSE_FILE"
