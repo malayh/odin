@@ -7,6 +7,7 @@ services:
       POSTGRES_USER: odin
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
       POSTGRES_DB: odin
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - ./.data/postgres:/var/lib/postgresql/data
     healthcheck:
