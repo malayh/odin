@@ -4,10 +4,10 @@ set -eu
 REPO="malayh/odin"
 ODIN_DIR="${ODIN_HOME:-$HOME/.odin}"
 BIN_DIR="$ODIN_DIR/bin"
-COMPOSE_FILE="$ODIN_DIR/docker-compose.prod.yaml"
+COMPOSE_FILE="$ODIN_DIR/docker-compose.yaml"
 ENV_FILE="$ODIN_DIR/.env"
 CONFIG_FILE="$ODIN_DIR/config.yaml"
-SERVER_URL="http://localhost:8000"
+SERVER_URL="http://localhost:32010"
 COMPOSE_URL="https://raw.githubusercontent.com/$REPO/main/docker-compose.prod.yaml"
 BINARY_URL="https://github.com/$REPO/releases/download/cli/odin-linux-x86_64"
 
@@ -46,8 +46,9 @@ fi
 docker info >/dev/null 2>&1 || die "the Docker daemon is not running"
 
 mkdir -p "$BIN_DIR" "$ODIN_DIR/.data/postgres" "$ODIN_DIR/.data/minio"
+chmod 777 "$ODIN_DIR/.data/postgres" "$ODIN_DIR/.data/minio"
 
-say "Downloading docker-compose.prod.yaml"
+say "Downloading docker-compose.yaml"
 curl -fsSL "$COMPOSE_URL" -o "$COMPOSE_FILE"
 
 say "Downloading odin CLI binary"
