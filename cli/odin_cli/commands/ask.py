@@ -16,7 +16,11 @@ def ask(
     cfg = require()
     try:
         with Client(cfg) as client:
-            result = client.ask(question)
+            if json_out:
+                result = client.ask(question)
+            else:
+                with output.thinking():
+                    result = client.ask(question)
     except ApiError as e:
         output.fail(e.message)
     if json_out:

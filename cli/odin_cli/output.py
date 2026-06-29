@@ -21,3 +21,7 @@ def fail(message: str) -> NoReturn:
 
 def success(message: str) -> None:
     console.print(f"[green]{message}[/green]")
+
+
+def thinking(message: str = "thinking…"):
+    return console.status(message, spinner="dots")

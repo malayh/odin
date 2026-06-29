@@ -1,15 +1,16 @@
-"""Push local files/directories to the ingest API."""
+"""Push local files/directories to the ingest API (async; track jobs in a queue)."""
 
-import time
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import json
+from contextlib import nullcontext
 from pathlib import Path
 
 import pathspec
 import typer
+from rich.table import Table
 
 from odin_cli import output
 from odin_cli.client import ApiError, Client
-from odin_cli.config import require
+from odin_cli.config import queue_path, require
 
 app = typer.Typer(no_args_is_help=True, help="Ingest documents.")
 
@@ -25,33 +26,24 @@ def _load_ignore(directory: Path) -> pathspec.GitIgnoreSpec | None:
     )
 
 
-def _poll(client: Client, job_id: str, *, timeout: float = 300.0, interval: float = 2.0) -> str:
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        job = client.get_job(job_id)
-        if job["state"] == "done":
-            return "done"
-        if job["state"] == "failed":
-            return f"failed: {job.get('error')}"
-        time.sleep(interval)
-    return "timeout"
+def _load_queue() -> list[dict]:
+    path = queue_path()
+    if not path.is_file():
+        return []
+    return json.loads(path.read_text(encoding="utf-8") or "[]")
 
 
-def _ingest_one(client: Client, directory: Path, path: Path) -> dict:
-    key = str(path.relative_to(directory))
-    try:
-        res = client.ingest(path, key)
-        state = _poll(client, res["job_id"]) if res.get("job_id") else "deduped"
-    except ApiError as e:
-        res = {}
-        state = f"error: {e.message}"
-    return {"key": key, "state": state, "document_id": res.get("document_id")}
+def _save_queue(entries: list[dict]) -> None:
+    path = queue_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(entries, indent=2), encoding="utf-8")
 
 
 @app.callback(invoke_without_command=True)
 def ingest(
+    ctx: typer.Context,
     directory: Path = typer.Option(
-        ...,
+        None,
         "-d",
         "--dir",
         exists=True,
@@ -59,11 +51,12 @@ def ingest(
         dir_okay=True,
         help="Directory to ingest.",
     ),
-    concurrency: int = typer.Option(
-        8, "-c", "--concurrency", min=1, help="Max files to ingest in parallel."
-    ),
     json_out: bool = typer.Option(False, "--json"),
 ) -> None:
+    if ctx.invoked_subcommand is not None:
+        return
+    if directory is None:
+        output.fail("missing option '--dir'")
     cfg = require()
     spec = _load_ignore(directory)
     files = sorted(
@@ -75,15 +68,77 @@ def ingest(
     )
     if not files:
         output.fail(f"no ingestible files (.txt/.md/.html) under {directory}")
-    results = []
+    width = max(len(str(p.relative_to(directory))) for p in files)
+    results, new_entries = [], []
     with Client(cfg) as client:
-        with ThreadPoolExecutor(max_workers=min(concurrency, len(files))) as pool:
-            futures = {pool.submit(_ingest_one, client, directory, path): path for path in files}
-            for future in as_completed(futures):
-                result = future.result()
-                results.append(result)
-                if not json_out:
-                    output.console.print(f"{result['key']} → {result['state']}")
-    results.sort(key=lambda r: r["key"])
+        for path in files:
+            key = str(path.relative_to(directory))
+            try:
+                ctx_mgr = nullcontext() if json_out else output.thinking(f"uploading {key}…")
+                with ctx_mgr:
+                    res = client.ingest(path, key)
+            except ApiError as e:
+                res, state = {}, f"error: {e.message}"
+            else:
+                if res.get("job_id"):
+                    state = "queued"
+                    new_entries.append(
+                        {
+                            "key": key,
+                            "job_id": str(res["job_id"]),
+                            "document_id": str(res.get("document_id")),
+                            "state": "pending",
+                        }
+                    )
+                else:
+                    state = "deduped"
+            results.append(
+                {
+                    "key": key,
+                    "state": state,
+                    "job_id": res.get("job_id"),
+                    "document_id": res.get("document_id"),
+                }
+            )
+            if not json_out:
+                output.console.print(f"↑ {key:<{width}}  {state}")
+    if new_entries:
+        queue = _load_queue()
+        seen = {e["job_id"] for e in queue}
+        queue.extend(e for e in new_entries if e["job_id"] not in seen)
+        _save_queue(queue)
     if json_out:
         output.print_json(results)
+    else:
+        output.success(
+            f"queued {len(new_entries)} job(s) — run `odin ingest status` to check progress"
+        )
+
+
+@app.command("status")
+def status(json_out: bool = typer.Option(False, "--json")) -> None:
+    cfg = require()
+    entries = _load_queue()
+    if not entries:
+        if json_out:
+            output.print_json([])
+        else:
+            output.console.print("no pending ingest jobs")
+        return
+    with Client(cfg) as client:
+        ctx_mgr = nullcontext() if json_out else output.thinking(f"checking {len(entries)} job(s)…")
+        with ctx_mgr:
+            for e in entries:
+                try:
+                    job = client.get_job(e["job_id"])
+                    e["state"], e["error"] = job["state"], job.get("error")
+                except ApiError as ex:
+                    e["state"], e["error"] = f"error: {ex.message}", ex.message
+    _save_queue([e for e in entries if e["state"] != "done"])
+    if json_out:
+        output.print_json(entries)
+    else:
+        table = Table("key", "state", "error")
+        for e in entries:
+            table.add_row(e["key"], e["state"], e.get("error") or "")
+        output.console.print(table)

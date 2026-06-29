@@ -17,6 +17,10 @@ def config_path() -> Path:
     return Path.home() / ".odin" / "config.yaml"
 
 
+def queue_path() -> Path:
+    return config_path().parent / "ingest_queue.json"
+
+
 @dataclass
 class Config:
     server_url: str = DEFAULT_SERVER

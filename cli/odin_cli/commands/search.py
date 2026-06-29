@@ -17,7 +17,11 @@ def search(
     cfg = require()
     try:
         with Client(cfg) as client:
-            result = client.search(query, top_k)
+            if json_out:
+                result = client.search(query, top_k)
+            else:
+                with output.thinking("searching…"):
+                    result = client.search(query, top_k)
     except ApiError as e:
         output.fail(e.message)
     if json_out:
