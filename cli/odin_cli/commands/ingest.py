@@ -4,6 +4,7 @@ import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 
+import pathspec
 import typer
 
 from odin_cli import output
@@ -13,6 +14,15 @@ from odin_cli.config import require
 app = typer.Typer(no_args_is_help=True, help="Ingest documents.")
 
 _SUPPORTED = {".txt", ".md", ".markdown", ".html", ".htm"}
+
+
+def _load_ignore(directory: Path) -> pathspec.GitIgnoreSpec | None:
+    ignore_file = directory / ".odinignore"
+    if not ignore_file.is_file():
+        return None
+    return pathspec.GitIgnoreSpec.from_lines(
+        ignore_file.read_text(encoding="utf-8").splitlines()
+    )
 
 
 def _poll(client: Client, job_id: str, *, timeout: float = 300.0, interval: float = 2.0) -> str:
@@ -55,8 +65,13 @@ def ingest(
     json_out: bool = typer.Option(False, "--json"),
 ) -> None:
     cfg = require()
+    spec = _load_ignore(directory)
     files = sorted(
-        p for p in directory.rglob("*") if p.is_file() and p.suffix.lower() in _SUPPORTED
+        p
+        for p in directory.rglob("*")
+        if p.is_file()
+        and p.suffix.lower() in _SUPPORTED
+        and not (spec and spec.match_file(p.relative_to(directory).as_posix()))
     )
     if not files:
         output.fail(f"no ingestible files (.txt/.md/.html) under {directory}")

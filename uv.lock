@@ -898,6 +898,7 @@ version = "0.0.0"
 source = { editable = "cli" }
 dependencies = [
     { name = "httpx" },
+    { name = "pathspec" },
     { name = "pyyaml" },
     { name = "rich" },
     { name = "typer" },
@@ -906,6 +907,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
+    { name = "pathspec", specifier = ">=0.12" },
     { name = "pyyaml", specifier = ">=6" },
     { name = "rich", specifier = ">=13" },
     { name = "typer", specifier = ">=0.12" },
