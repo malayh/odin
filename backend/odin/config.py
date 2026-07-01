@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     consolidation_neutral_quorum: int = 2
     consolidation_confidence_floor: float = 0.6
     consolidation_skeptic_floor: float = 0.7
+    consolidation_judge_concurrency: int = 8
 
 
 @lru_cache

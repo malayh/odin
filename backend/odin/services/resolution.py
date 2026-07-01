@@ -140,23 +140,33 @@ async def resolve(
     def union(a: int, b: int) -> None:
         parent[find(a)] = find(b)
 
-    for i, ek in ext_pairs:
-        j = ex_index[ek]
-        if find(i) == find(j):
-            continue
-        if await _confirm_same(names[i], types[i], _facts(i), names[j], types[j], _facts(j)):
-            union(i, j)
-
     for i in range(n):
         for j in range(i + 1, n):
-            if find(i) == find(j) or new_types[i] != new_types[j]:
-                continue
             if new_keys[i] == new_keys[j]:
                 union(i, j)
-            elif _cosine(new_vecs[i], new_vecs[j]) >= threshold and await _confirm_same(
-                names[i], types[i], _facts(i), names[j], types[j], _facts(j)
+
+    to_confirm = [(i, ex_index[ek]) for i, ek in ext_pairs]
+    for i in range(n):
+        for j in range(i + 1, n):
+            if (
+                new_types[i] == new_types[j]
+                and new_keys[i] != new_keys[j]
+                and _cosine(new_vecs[i], new_vecs[j]) >= threshold
             ):
-                union(i, j)
+                to_confirm.append((i, j))
+
+    sem = asyncio.Semaphore(get_settings().consolidation_judge_concurrency)
+
+    async def _confirm(i: int, j: int) -> tuple[int, int, bool]:
+        async with sem:
+            same = await _confirm_same(
+                names[i], types[i], _facts(i), names[j], types[j], _facts(j)
+            )
+        return i, j, same
+
+    for i, j, same in sorted(await asyncio.gather(*(_confirm(a, b) for a, b in to_confirm))):
+        if same and find(i) != find(j):
+            union(i, j)
 
     clusters: dict[int, list[int]] = defaultdict(list)
     for i in range(len(keys)):
@@ -372,21 +382,27 @@ async def deep_consolidate(
     def union(a: int, b: int) -> None:
         parent[find(a)] = find(b)
 
-    evidence: dict[int, tuple[float, str]] = {}
-    for pair in candidates:
+    sem = asyncio.Semaphore(get_settings().consolidation_judge_concurrency)
+
+    async def _judge(pair: frozenset[str]) -> tuple[str, str, tuple[bool, float, str] | None]:
         a, b = sorted(pair)
+        async with sem:
+            try:
+                return a, b, await _judge_pair(dossiers[a], dossiers[b])
+            except Exception:
+                logger.warning("deep_consolidate judge failed for %s ~ %s; skipping", a, b)
+                return a, b, None
+
+    evidence: dict[int, tuple[float, str]] = {}
+    for a, b, verdict in sorted(await asyncio.gather(*(_judge(pair) for pair in candidates))):
+        if verdict is None or not verdict[0]:
+            continue
         ia, ib = index[a], index[b]
         if find(ia) == find(ib):
             continue
-        try:
-            merge, conf, rationale = await _judge_pair(dossiers[a], dossiers[b])
-        except Exception:
-            logger.warning("deep_consolidate judge failed for %s ~ %s; skipping", a, b)
-            continue
-        if merge:
-            union(ia, ib)
-            evidence[ia] = (conf, rationale)
-            evidence[ib] = (conf, rationale)
+        union(ia, ib)
+        evidence[ia] = (verdict[1], verdict[2])
+        evidence[ib] = (verdict[1], verdict[2])
 
     clusters: dict[int, list[int]] = defaultdict(list)
     for i in range(len(involved)):
