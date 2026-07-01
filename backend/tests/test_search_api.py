@@ -1,7 +1,7 @@
 import uuid
 
 import pytest
-from odin.models import Chunk, DocState, Document, Embedding
+from odin.models import Chunk, DocState, Document, ObjectEmbedding
 from odin.services import embedding
 from odin.services.users import create_user
 
@@ -36,7 +36,15 @@ async def _seed_chunk(session, owner_id, text, vec_idx):
     )
     session.add(c)
     await session.flush()
-    session.add(Embedding(chunk_id=c.id, vector=_vec(vec_idx)))
+    session.add(
+        ObjectEmbedding(
+            object_type="chunk",
+            object_id=str(c.id),
+            field="text",
+            owner_user_id=owner_id,
+            vector=_vec(vec_idx),
+        )
+    )
     await session.flush()
     return c
 

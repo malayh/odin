@@ -28,11 +28,17 @@ def _build(verb: str) -> typer.Typer:
     app = typer.Typer(no_args_is_help=False, help=f"Run the {verb} sleep phase (async).")
 
     @app.callback(invoke_without_command=True)
-    def trigger(ctx: typer.Context, json_out: bool = typer.Option(False, "--json")) -> None:
+    def trigger(
+        ctx: typer.Context,
+        json_out: bool = typer.Option(False, "--json"),
+        full: bool = typer.Option(
+            False, "--full", help="Consolidate the whole graph, not just new entities."
+        ),
+    ) -> None:
         if ctx.invoked_subcommand is not None:
             return
         with client() as c:
-            run = c.consolidate() if verb == "consolidate" else c.dream()
+            run = c.consolidate(full=full) if verb == "consolidate" else c.dream()
         if json_out:
             output.print_json(run)
             return

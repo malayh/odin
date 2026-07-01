@@ -1,14 +1,24 @@
 import uuid
+from types import SimpleNamespace
 
-from odin.models import DocState, Document
+import pytest
 from odin.services import graph, mutations, resolution
 from odin.services.extraction import Extracted, ExtractedEntity
 
-_VECS = {
-    "Bob Smith": [1.0, 0.0, 0.0],
-    "Bob": [0.99, 0.01, 0.0],
-    "Acme": [0.0, 0.0, 1.0],
-}
+_CLUSTER = {"bob": 0, "acme": 1, "helios": 2}
+
+
+@pytest.fixture(autouse=True)
+def _fake_embed(monkeypatch):
+    async def embed(texts):
+        out = []
+        for t in texts:
+            v = [0.0] * 1536
+            v[_CLUSTER.get(t.split()[0].lower(), 100)] = 1.0
+            out.append(v)
+        return out
+
+    monkeypatch.setattr(resolution.embedding, "embed_texts", embed)
 
 
 def _ex():
@@ -22,13 +32,6 @@ def _ex():
     )
 
 
-def _fake_embed(monkeypatch):
-    async def embed(texts):
-        return [_VECS[t] for t in texts]
-
-    monkeypatch.setattr(resolution.embedding, "embed_texts", embed)
-
-
 def _fake_confirm(monkeypatch, same):
     async def confirm(prompt, schema, system=None, model=None, max_tokens=None):
         return schema(same=same)
@@ -37,7 +40,6 @@ def _fake_confirm(monkeypatch, same):
 
 
 async def test_resolve_merges_similar_confirmed(db_session, monkeypatch):
-    _fake_embed(monkeypatch)
     _fake_confirm(monkeypatch, True)
     uid = uuid.uuid4()
     merges = await resolution.resolve(db_session, _ex(), uid, str(uuid.uuid4()))
@@ -48,7 +50,6 @@ async def test_resolve_merges_similar_confirmed(db_session, monkeypatch):
 
 
 async def test_resolve_respects_llm_rejection(db_session, monkeypatch):
-    _fake_embed(monkeypatch)
     _fake_confirm(monkeypatch, False)
     merges = await resolution.resolve(
         db_session, _ex(), uuid.uuid4(), str(uuid.uuid4())
@@ -57,26 +58,15 @@ async def test_resolve_respects_llm_rejection(db_session, monkeypatch):
 
 
 async def test_resolve_merges_alias_into_existing_graph_entity(db_session, monkeypatch):
-    async def embed(texts):
-        v = {"Helios": [1.0, 0.0], "Helios Robotics": [0.99, 0.01]}
-        return [v[t] for t in texts]
-
-    monkeypatch.setattr(resolution.embedding, "embed_texts", embed)
     _fake_confirm(monkeypatch, True)
-
     uid = uuid.uuid4()
-    doc = Document(
-        id=uuid.uuid4(),
-        owner_user_id=uid,
-        key="a.md",
-        content_hash=uuid.uuid4().hex,
-        version=1,
-        state=DocState.indexed,
-    )
-    await graph.upsert_document(db_session, doc)
-    await graph.upsert_entity(db_session, "org:helios robotics", "Helios Robotics", "Org", str(uid))
-    await graph.add_mention(
-        db_session, doc, "org:helios robotics", "Helios Robotics", "extracted", 1.0, "x"
+    doc = SimpleNamespace(id=uuid.uuid4(), owner_user_id=uid)
+    await graph.upsert(
+        db_session,
+        doc,
+        Extracted(entities=[ExtractedEntity(name="Helios Robotics", type="Org", confidence=1.0)]),
+        {},
+        "x",
     )
 
     ex = Extracted(entities=[ExtractedEntity(name="Helios", type="Org", confidence=0.9)])
@@ -85,8 +75,6 @@ async def test_resolve_merges_alias_into_existing_graph_entity(db_session, monke
 
 
 async def test_resolve_does_not_merge_dissimilar(db_session, monkeypatch):
-    _fake_embed(monkeypatch)
-
     async def confirm(prompt, schema, system=None, model=None, max_tokens=None):
         raise AssertionError("dissimilar pairs should not reach the LLM")
 

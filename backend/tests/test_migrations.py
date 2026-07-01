@@ -15,7 +15,7 @@ TABLES = {
     "documents",
     "chunks",
     "jobs",
-    "embeddings",
+    "object_embeddings",
     "graph_mutations",
     "sleep_runs",
 }

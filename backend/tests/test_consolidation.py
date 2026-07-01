@@ -1,7 +1,23 @@
 import uuid
 from types import SimpleNamespace
 
+import pytest
 from odin.services import graph, resolution
+
+_CLUSTER = {"helios": 0, "atlas": 1, "austin": 2}
+
+
+@pytest.fixture(autouse=True)
+def _fake_embed(monkeypatch):
+    async def embed(texts):
+        out = []
+        for t in texts:
+            v = [0.0] * 1536
+            v[_CLUSTER.get(t.split()[0].lower(), 100)] = 1.0
+            out.append(v)
+        return out
+
+    monkeypatch.setattr(resolution.embedding, "embed_texts", embed)
 
 
 def _doc(owner):
@@ -72,17 +88,12 @@ async def _seed_duplicate(worker_db, uid):
         doc1 = _doc(uid)
         await graph.upsert(s, doc1, _ex([_ent("Helios Robotics", "Org")], []), {}, "m")
         doc2 = _doc(uid)
-        await graph.upsert_document(s, doc2)
-        await graph.upsert_entity(s, "org:helios", "Helios", "Org", str(uid))
-        await graph.add_mention(s, doc2, "org:helios", "Helios", "extracted", 0.9, "m")
+        await graph.upsert(s, doc2, _ex([_ent("Helios", "Org")], []), {}, "m")
         await s.commit()
 
 
 def _mock_judges(monkeypatch, *, distinct=False, skeptic_conf=0.9, judge_verdicts=None):
     state = {"i": 0}
-
-    async def embed(texts):
-        return [[1.0, 0.0] for _ in texts]
 
     async def complete(prompt, schema, system=None, model=None, max_tokens=None):
         if schema is resolution._SkepticVerdict:
@@ -92,7 +103,6 @@ def _mock_judges(monkeypatch, *, distinct=False, skeptic_conf=0.9, judge_verdict
         state["i"] += 1
         return schema(same=same, confidence=conf, rationale="r")
 
-    monkeypatch.setattr(resolution.embedding, "embed_texts", embed)
     monkeypatch.setattr(resolution.llm, "complete_json", complete)
 
 

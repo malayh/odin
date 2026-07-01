@@ -4,11 +4,11 @@ import uuid
 from dataclasses import dataclass
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import Uuid, cast, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from odin.config import get_settings
-from odin.models import Chunk, DocState, Document, Embedding
+from odin.models import Chunk, DocState, Document, ObjectEmbedding
 from odin.services import embedding, graph
 from odin.tenancy import owner_filter
 
@@ -32,7 +32,7 @@ async def search(
     top_k: int = 10,
 ) -> list[Hit]:
     qvec = (await embedding.embed_texts([query]))[0]
-    distance = Embedding.vector.cosine_distance(qvec)
+    distance = ObjectEmbedding.vector.cosine_distance(qvec)
     rows = (
         await session.execute(
             select(
@@ -45,10 +45,11 @@ async def search(
                 Chunk.char_end,
                 distance.label("distance"),
             )
-            .select_from(Embedding)
-            .join(Chunk, Chunk.id == Embedding.chunk_id)
+            .select_from(ObjectEmbedding)
+            .join(Chunk, Chunk.id == cast(ObjectEmbedding.object_id, Uuid))
             .join(Document, Document.id == Chunk.document_id)
             .where(
+                ObjectEmbedding.object_type == "chunk",
                 owner_filter(owner),
                 Document.supersedes_id.is_(None),
                 Document.state != DocState.soft_deleted,

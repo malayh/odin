@@ -54,7 +54,8 @@ class Settings(BaseSettings):
     worker_max_attempts: int = 5
 
     # --- consolidation (deep_consolidate: dossier + skeptic-veto + confidence vote) ---
-    consolidation_cosine_gate: float = 0.5
+    consolidation_cosine_gate: float = 0.7
+    consolidation_ann_top_k: int = 10
     consolidation_neutral_judges: int = 2
     consolidation_neutral_quorum: int = 2
     consolidation_confidence_floor: float = 0.6

@@ -78,7 +78,7 @@ async def test_single_flight_is_per_owner(client, admin, db_session):
 
 
 async def test_consolidate_task_records_merges(worker_db, monkeypatch):
-    async def fake_consolidate(session, owner, *, keys=None):
+    async def fake_consolidate(session, owner, *, since=None, keys=None):
         return 3
 
     monkeypatch.setattr(tasks.resolution, "deep_consolidate", fake_consolidate)
@@ -97,7 +97,7 @@ async def test_consolidate_task_records_merges(worker_db, monkeypatch):
     async with worker_db() as s:
         got = await s.get(SleepRun, run_id)
         assert got.state == SleepState.succeeded
-        assert got.stats == {"merges": 3}
+        assert got.stats == {"merges": 3, "mode": "full"}
         assert got.started_at is not None
         assert got.finished_at is not None
 

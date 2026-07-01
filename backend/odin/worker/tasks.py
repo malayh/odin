@@ -5,7 +5,7 @@ from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
 
 from odin.config import get_settings
 from odin.db import SessionLocal
@@ -110,8 +110,8 @@ async def _pipeline(document_id: uuid.UUID) -> None:
 
 
 @app.task(name="consolidate")
-async def consolidate(run_id: str) -> None:
-    await _run_sleep(uuid.UUID(run_id), _consolidate_body)
+async def consolidate(run_id: str, full: bool = False) -> None:
+    await _run_sleep(uuid.UUID(run_id), lambda owner: _consolidate_body(owner, full))
 
 
 @app.task(name="dream")
@@ -133,11 +133,23 @@ async def _run_sleep(
         raise
 
 
-async def _consolidate_body(owner: uuid.UUID) -> dict[str, Any]:
+async def _consolidate_body(owner: uuid.UUID, full: bool) -> dict[str, Any]:
     async with SessionLocal() as session:
-        merged = await resolution.deep_consolidate(session, owner)
+        since = None
+        if not full:
+            since = await session.scalar(
+                select(SleepRun.finished_at)
+                .where(
+                    SleepRun.owner_user_id == owner,
+                    SleepRun.type == "consolidate",
+                    SleepRun.state == SleepState.succeeded,
+                )
+                .order_by(SleepRun.finished_at.desc())
+                .limit(1)
+            )
+        merged = await resolution.deep_consolidate(session, owner, since=since)
         await session.commit()
-        return {"merges": merged}
+        return {"merges": merged, "mode": "full" if since is None else "incremental"}
 
 
 async def _dream_body(owner: uuid.UUID) -> dict[str, Any]:

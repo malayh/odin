@@ -17,7 +17,7 @@ from odin.models import SleepRun, SleepState
 from odin.worker.tasks import consolidate as consolidate_task
 from odin.worker.tasks import dream as dream_task
 
-_TASKS = {"consolidate": consolidate_task, "dream": dream_task}
+_TASKS: dict[str, Any] = {"consolidate": consolidate_task, "dream": dream_task}
 
 
 def _require_type(type_: str) -> None:
@@ -25,7 +25,9 @@ def _require_type(type_: str) -> None:
         raise ValidationError(f"unknown sleep type: {type_}")
 
 
-async def trigger(session: AsyncSession, owner: uuid.UUID, type_: str) -> SleepRun:
+async def trigger(
+    session: AsyncSession, owner: uuid.UUID, type_: str, *, full: bool = False
+) -> SleepRun:
     _require_type(type_)
     active = await session.scalar(
         select(SleepRun).where(
@@ -41,6 +43,10 @@ async def trigger(session: AsyncSession, owner: uuid.UUID, type_: str) -> SleepR
     session.add(run)
     await session.flush()
 
+    task_args: dict[str, Any] = {"run_id": str(run.id)}
+    if type_ == "consolidate":
+        task_args["full"] = full
+
     connection = (await (await session.connection()).get_raw_connection()).driver_connection
     await (
         _TASKS[type_]
@@ -49,7 +55,7 @@ async def trigger(session: AsyncSession, owner: uuid.UUID, type_: str) -> SleepR
             lock=f"sleep:{owner}",
             queueing_lock=f"{type_}:{owner}",
         )
-        .defer_async(run_id=str(run.id))
+        .defer_async(**task_args)
     )
     await session.commit()
     return run

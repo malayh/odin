@@ -1,10 +1,10 @@
 import uuid
 
-from odin.models import Chunk, DocState, Document, Embedding, Job, JobState, User
+from odin.models import Chunk, DocState, Document, Job, JobState, ObjectEmbedding, User
 from odin.services import blobs, embedding, llm
 from odin.services.extraction import Extracted
 from odin.worker import tasks
-from sqlalchemy import func, select
+from sqlalchemy import Uuid, cast, func, select
 
 SRC = b"# Title\n\n" + b"word " * 300
 
@@ -47,9 +47,12 @@ async def _counts(sm, document_id: uuid.UUID) -> tuple[int, int]:
         )
         n_vecs = await s.scalar(
             select(func.count())
-            .select_from(Embedding)
-            .join(Chunk, Chunk.id == Embedding.chunk_id)
-            .where(Chunk.document_id == document_id)
+            .select_from(ObjectEmbedding)
+            .join(Chunk, Chunk.id == cast(ObjectEmbedding.object_id, Uuid))
+            .where(
+                ObjectEmbedding.object_type == "chunk",
+                Chunk.document_id == document_id,
+            )
         )
         return n_chunks, n_vecs
 

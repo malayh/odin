@@ -5,6 +5,7 @@ import logging
 import math
 import uuid
 from collections import defaultdict
+from datetime import UTC, datetime
 
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -86,36 +87,49 @@ async def resolve(
     new_keys = [ontology.entity_key(e.name, e.type) for e in ents]
     new_types = [ontology.normalize_type(e.type)[0] for e in ents]
     new_key_set = set(new_keys)
-    existing = [
-        (k, n, t)
+    new_vecs = await embedding.embed_texts([e.name for e in ents])
+    top_k = get_settings().consolidation_ann_top_k
+
+    existing_meta = {
+        k: (n, t)
         for k, n, t in await graph.list_owner_entities(session, owner)
         if k not in new_key_set
-    ]
-
-    n = len(ents)
-    names = [e.name for e in ents] + [x[1] for x in existing]
-    keys = new_keys + [x[0] for x in existing]
-    types = new_types + [x[2] for x in existing]
-    in_graph = [False] * n + [True] * len(existing)
-    if len(names) < 2:
-        return {}
-    vecs = await embedding.embed_texts(names)
+    }
 
     new_facts: dict[str, list[str]] = defaultdict(list)
     for rel in extracted.relations:
         new_facts[rel.subject].append(f"{rel.predicate} {rel.object}")
         new_facts[rel.object].append(f"{rel.subject} {rel.predicate}")
+
+    ext_pairs: list[tuple[int, str]] = []
+    cand_existing: set[str] = set()
+    for i, nk in enumerate(new_keys):
+        prefix = nk.split(":", 1)[0]
+        for ek, dist in await embedding.nearest_entities(
+            session, owner, new_vecs[i], type_prefix=prefix, top_k=top_k, exclude_key=nk
+        ):
+            if ek in existing_meta and (1.0 - dist) >= threshold:
+                ext_pairs.append((i, ek))
+                cand_existing.add(ek)
+
     ex_facts: dict[str, list[str]] = defaultdict(list)
-    for k, pred, obj in await graph.owner_entity_facts(
-        session, owner, [x[0] for x in existing]
-    ):
-        ex_facts[k].append(f"{pred} {obj}")
+    if cand_existing:
+        for k, pred, obj in await graph.owner_entity_facts(session, owner, list(cand_existing)):
+            ex_facts[k].append(f"{pred} {obj}")
+
+    ex_list = sorted(cand_existing)
+    n = len(ents)
+    keys = new_keys + ex_list
+    names = [e.name for e in ents] + [existing_meta[k][0] for k in ex_list]
+    types = new_types + [existing_meta[k][1] for k in ex_list]
+    in_graph = [False] * n + [True] * len(ex_list)
+    ex_index = {k: n + i for i, k in enumerate(ex_list)}
 
     def _facts(idx: int) -> list[str]:
         src = ex_facts.get(keys[idx], []) if in_graph[idx] else new_facts.get(names[idx], [])
         return src[:3]
 
-    parent = list(range(len(names)))
+    parent = list(range(len(keys)))
 
     def find(x: int) -> int:
         while parent[x] != x:
@@ -126,19 +140,26 @@ async def resolve(
     def union(a: int, b: int) -> None:
         parent[find(a)] = find(b)
 
-    for i in range(len(names)):
-        for j in range(i + 1, len(names)):
-            if find(i) == find(j) or (in_graph[i] and in_graph[j]):
+    for i, ek in ext_pairs:
+        j = ex_index[ek]
+        if find(i) == find(j):
+            continue
+        if await _confirm_same(names[i], types[i], _facts(i), names[j], types[j], _facts(j)):
+            union(i, j)
+
+    for i in range(n):
+        for j in range(i + 1, n):
+            if find(i) == find(j) or new_types[i] != new_types[j]:
                 continue
-            if keys[i] == keys[j]:
+            if new_keys[i] == new_keys[j]:
                 union(i, j)
-            elif _cosine(vecs[i], vecs[j]) >= threshold and await _confirm_same(
+            elif _cosine(new_vecs[i], new_vecs[j]) >= threshold and await _confirm_same(
                 names[i], types[i], _facts(i), names[j], types[j], _facts(j)
             ):
                 union(i, j)
 
     clusters: dict[int, list[int]] = defaultdict(list)
-    for i in range(len(names)):
+    for i in range(len(keys)):
         clusters[find(i)].append(i)
 
     merges: dict[str, tuple[str, str, str]] = {}
@@ -297,6 +318,7 @@ async def deep_consolidate(
     session: AsyncSession,
     owner: uuid.UUID,
     *,
+    since: datetime | None = None,
     keys: list[str] | None = None,
 ) -> int:
     entities = await graph.list_owner_entities(session, owner)
@@ -305,14 +327,41 @@ async def deep_consolidate(
         entities = [e for e in entities if e[0] in keyset]
     if len(entities) < 2:
         return 0
-    ekeys = [e[0] for e in entities]
-    names = [e[1] for e in entities]
-    types = [e[2] for e in entities]
-    vecs = await embedding.embed_texts(names)
-    dossiers = await _build_dossiers(session, owner, entities)
+    names = {e[0]: e[1] for e in entities}
+    types = {e[0]: e[2] for e in entities}
+    if since is None:
+        probe_keys = list(names)
+    else:
+        probe_keys = [
+            k
+            for k in await graph.entities_created_after(
+                session, owner, since.astimezone(UTC).isoformat()
+            )
+            if k in names
+        ]
+    if not probe_keys:
+        return 0
+    probe_vecs = await embedding.entity_vectors(session, owner, probe_keys)
+    top_k = get_settings().consolidation_ann_top_k
     gate = get_settings().consolidation_cosine_gate
 
-    parent = list(range(len(ekeys)))
+    candidates: set[frozenset[str]] = set()
+    for key, vec in probe_vecs.items():
+        prefix = key.split(":", 1)[0]
+        for nk, dist in await embedding.nearest_entities(
+            session, owner, vec, type_prefix=prefix, top_k=top_k, exclude_key=key
+        ):
+            if nk in names and (1.0 - dist) >= gate:
+                candidates.add(frozenset((key, nk)))
+    if not candidates:
+        return 0
+
+    involved = sorted({k for pair in candidates for k in pair})
+    dossiers = await _build_dossiers(
+        session, owner, [(k, names[k], types[k]) for k in involved]
+    )
+    index = {k: i for i, k in enumerate(involved)}
+    parent = list(range(len(involved)))
 
     def find(x: int) -> int:
         while parent[x] != x:
@@ -324,45 +373,50 @@ async def deep_consolidate(
         parent[find(a)] = find(b)
 
     evidence: dict[int, tuple[float, str]] = {}
-    for i in range(len(ekeys)):
-        for j in range(i + 1, len(ekeys)):
-            if find(i) == find(j) or _cosine(vecs[i], vecs[j]) < gate:
-                continue
-            try:
-                merge, conf, rationale = await _judge_pair(dossiers[ekeys[i]], dossiers[ekeys[j]])
-            except Exception:
-                logger.warning("deep_consolidate judge failed for %s ~ %s; skipping",
-                               ekeys[i], ekeys[j])
-                continue
-            if merge:
-                union(i, j)
-                evidence[i] = (conf, rationale)
-                evidence[j] = (conf, rationale)
+    for pair in candidates:
+        a, b = sorted(pair)
+        ia, ib = index[a], index[b]
+        if find(ia) == find(ib):
+            continue
+        try:
+            merge, conf, rationale = await _judge_pair(dossiers[a], dossiers[b])
+        except Exception:
+            logger.warning("deep_consolidate judge failed for %s ~ %s; skipping", a, b)
+            continue
+        if merge:
+            union(ia, ib)
+            evidence[ia] = (conf, rationale)
+            evidence[ib] = (conf, rationale)
 
     clusters: dict[int, list[int]] = defaultdict(list)
-    for i in range(len(ekeys)):
+    for i in range(len(involved)):
         clusters[find(i)].append(i)
+
+    def _rank(m: int) -> tuple[int, str, str]:
+        k = involved[m]
+        return (len(names[k]), names[k], k)
 
     merged = 0
     for members in clusters.values():
         if len(members) < 2:
             continue
-        canon = max(members, key=lambda m: (len(names[m]), names[m], ekeys[m]))
-        ckey, cname, ctype = ekeys[canon], names[canon], types[canon]
+        ckey = involved[max(members, key=_rank)]
+        cname, ctype = names[ckey], types[ckey]
         for m in members:
-            if m == canon:
+            mk = involved[m]
+            if mk == ckey:
                 continue
             conf, rationale = evidence[m]
-            await graph.merge_nodes(session, ckey, cname, ctype, ekeys[m], str(owner))
+            await graph.merge_nodes(session, ckey, cname, ctype, mk, str(owner))
             await mutations.log(
                 session,
                 actor="resolver",
                 op="node_merge",
                 payload={
                     "canonical_key": ckey,
-                    "absorbed_key": ekeys[m],
-                    "absorbed_name": names[m],
-                    "absorbed_type": types[m],
+                    "absorbed_key": mk,
+                    "absorbed_name": names[mk],
+                    "absorbed_type": types[mk],
                     "owner": str(owner),
                 },
                 rationale=rationale,

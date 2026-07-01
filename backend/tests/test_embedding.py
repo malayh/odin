@@ -2,7 +2,7 @@ import uuid
 
 import pytest
 from odin.config import get_settings
-from odin.models import Chunk, DocState, Document, Embedding, User
+from odin.models import Chunk, DocState, Document, ObjectEmbedding, User
 from odin.services import embedding
 from sqlalchemy import func, select
 
@@ -87,9 +87,9 @@ async def test_embed_chunks_inserts_one_vector_per_chunk(db_session, monkeypatch
     monkeypatch.setattr(embedding, "embed_texts", fake_embed_texts)
     await embedding.embed_chunks(db_session, doc.id)
 
-    n = await db_session.scalar(select(func.count()).select_from(Embedding))
+    n = await db_session.scalar(select(func.count()).select_from(ObjectEmbedding))
     assert n == 3
-    rows = (await db_session.execute(select(Embedding))).scalars().all()
+    rows = (await db_session.execute(select(ObjectEmbedding))).scalars().all()
     for r in rows:
         assert len(r.vector) == 1536
 

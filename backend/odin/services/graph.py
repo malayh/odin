@@ -11,7 +11,7 @@ from odin.config import get_settings
 from odin.errors import NotFoundError
 from odin.graphdb import cypher
 from odin.models import Document, GraphMutation
-from odin.services import mutations, objectives, ontology
+from odin.services import embedding, mutations, objectives, ontology
 
 
 async def _cy(
@@ -132,6 +132,7 @@ async def upsert(
     await upsert_document(session, doc)
     doc_id = str(doc.id)
     name_to_key: dict[str, str] = {}
+    entity_display: dict[str, str] = {}
     for ent in extracted.entities:
         raw_key = ontology.entity_key(ent.name, ent.type)
         if raw_key in merges:
@@ -156,6 +157,10 @@ async def upsert(
             confidence=ent.confidence,
         )
         name_to_key[ent.name] = key
+        entity_display[key] = name
+    await embedding.upsert_object_embeddings(
+        session, "entity", "name", doc.owner_user_id, list(entity_display.items())
+    )
     for rel in extracted.relations:
         subj = name_to_key.get(rel.subject)
         obj = name_to_key.get(rel.object)
@@ -195,6 +200,20 @@ async def list_owner_entities(
         columns=("key", "name", "type"),
     )
     return [(r[0], r[1], r[2]) for r in rows]
+
+
+async def entities_created_after(
+    session: AsyncSession, owner: uuid.UUID, since: str
+) -> list[str]:
+    rows = await _cy(
+        session,
+        "MATCH (:Document)-[m:MENTIONS]->(e:Entity) "
+        "WHERE m.owner=$owner AND e.created_at > $since "
+        "RETURN DISTINCT e.key",
+        {"owner": str(owner), "since": since},
+        columns=("key",),
+    )
+    return [r[0] for r in rows]
 
 
 async def owner_entity_facts(
@@ -422,6 +441,7 @@ async def create_entity(
         op="entity_add",
         payload={"key": key, "name": name, "type": type_, "owner": str(owner)},
     )
+    await embedding.upsert_object_embeddings(session, "entity", "name", owner, [(key, name)])
     return {"applied": True, "summary": f"created entity {key}", "id": key}
 
 
@@ -446,6 +466,9 @@ async def rename_entity(
         actor="user",
         op="entity_rename",
         payload={"key": new_key, "from_key": key, "to_key": new_key, "owner": str(owner)},
+    )
+    await embedding.upsert_object_embeddings(
+        session, "entity", "name", owner, [(new_key, new_name)]
     )
     return {"applied": True, "summary": f"renamed {key} -> {new_key}", "id": new_key}
 
@@ -474,6 +497,7 @@ async def drop_entity(
         op="entity_drop",
         payload={"key": key, "owner": str(owner)},
     )
+    await embedding.delete_object_embeddings(session, "entity", key)
     return {"applied": True, "summary": f"dropped entity {key}", "id": key}
 
 
@@ -746,3 +770,4 @@ async def merge_nodes(
         "MATCH (a:Entity {key:$absorbed}) DETACH DELETE a",
         {"absorbed": absorbed_key},
     )
+    await embedding.delete_object_embeddings(session, "entity", absorbed_key)

@@ -39,7 +39,7 @@ async def test_owner_filter_excludes_other_users(db_session):
 
 
 async def test_vector_search_excludes_other_users(db_session, monkeypatch):
-    from odin.models import Chunk, Embedding
+    from odin.models import Chunk, ObjectEmbedding
     from odin.services import embedding, retrieval
 
     me = await _user(db_session, "vec-me@example.com")
@@ -57,7 +57,15 @@ async def test_vector_search_excludes_other_users(db_session, monkeypatch):
         )
         db_session.add(c)
         await db_session.flush()
-        db_session.add(Embedding(chunk_id=c.id, vector=[1.0] + [0.0] * 1535))
+        db_session.add(
+            ObjectEmbedding(
+                object_type="chunk",
+                object_id=str(c.id),
+                field="text",
+                owner_user_id=owner.id,
+                vector=[1.0] + [0.0] * 1535,
+            )
+        )
         await db_session.flush()
         return c
 
@@ -79,7 +87,7 @@ async def test_vector_search_excludes_other_users(db_session, monkeypatch):
 async def test_ask_excludes_other_users(db_session, monkeypatch):
     import re
 
-    from odin.models import Chunk, Embedding
+    from odin.models import Chunk, ObjectEmbedding
     from odin.services import answering, embedding, llm
 
     me = await _user(db_session, "ask-me@example.com")
@@ -97,7 +105,15 @@ async def test_ask_excludes_other_users(db_session, monkeypatch):
         )
         db_session.add(c)
         await db_session.flush()
-        db_session.add(Embedding(chunk_id=c.id, vector=[1.0] + [0.0] * 1535))
+        db_session.add(
+            ObjectEmbedding(
+                object_type="chunk",
+                object_id=str(c.id),
+                field="text",
+                owner_user_id=owner.id,
+                vector=[1.0] + [0.0] * 1535,
+            )
+        )
         await db_session.flush()
         return doc
 

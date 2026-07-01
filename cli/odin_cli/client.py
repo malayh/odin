@@ -174,8 +174,8 @@ class Client:
     def openapi(self) -> Any:
         return self._request("GET", "/openapi.json")
 
-    def consolidate(self) -> Any:
-        return self._request("POST", "/consolidate")
+    def consolidate(self, full: bool = False) -> Any:
+        return self._request("POST", "/consolidate", params={"full": full})
 
     def dream(self) -> Any:
         return self._request("POST", "/dream")

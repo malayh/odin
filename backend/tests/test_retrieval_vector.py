@@ -1,6 +1,6 @@
 import uuid
 
-from odin.models import Chunk, DocState, Document, Embedding, User
+from odin.models import Chunk, DocState, Document, ObjectEmbedding, User
 from odin.services import embedding, retrieval
 
 
@@ -33,7 +33,15 @@ async def _seed_doc(session, user, vectors):
         )
         session.add(c)
         await session.flush()
-        session.add(Embedding(chunk_id=c.id, vector=vec))
+        session.add(
+            ObjectEmbedding(
+                object_type="chunk",
+                object_id=str(c.id),
+                field="text",
+                owner_user_id=user.id,
+                vector=vec,
+            )
+        )
         chunks.append(c)
     await session.flush()
     return doc, chunks

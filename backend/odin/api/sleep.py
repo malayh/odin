@@ -10,8 +10,10 @@ from odin.services import sleep
 router = APIRouter()
 
 
-async def _trigger(type_: str, principal: User, session: SessionDep) -> SleepRunOut:
-    run = await sleep.trigger(session, principal.id, type_)
+async def _trigger(
+    type_: str, principal: User, session: SessionDep, full: bool = False
+) -> SleepRunOut:
+    run = await sleep.trigger(session, principal.id, type_, full=full)
     return SleepRunOut.model_validate(run)
 
 
@@ -25,8 +27,10 @@ async def _status(type_: str, principal: User, session: SessionDep) -> SleepStat
 
 
 @router.post("/consolidate", response_model=SleepRunOut, status_code=201)
-async def trigger_consolidate(principal: PrincipalDep, session: SessionDep) -> SleepRunOut:
-    return await _trigger("consolidate", principal, session)
+async def trigger_consolidate(
+    principal: PrincipalDep, session: SessionDep, full: bool = False
+) -> SleepRunOut:
+    return await _trigger("consolidate", principal, session, full)
 
 
 @router.get("/consolidate/status", response_model=SleepStatusOut)
