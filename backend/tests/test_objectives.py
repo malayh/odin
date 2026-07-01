@@ -38,3 +38,16 @@ async def test_dry_run_does_not_write(db_session):
 async def test_drop_missing_raises(db_session):
     with pytest.raises(NotFoundError):
         await objectives.drop(db_session, uuid.uuid4(), "no-such-id")
+
+
+async def test_get_for_owner_roundtrip(db_session):
+    owner = uuid.uuid4()
+    created = await objectives.create(db_session, owner, "ship L5")
+    got = await objectives.get_for_owner(db_session, owner, created["id"])
+    assert got["id"] == created["id"]
+    assert got["text"] == "ship L5"
+
+
+async def test_get_for_owner_missing_raises(db_session):
+    with pytest.raises(NotFoundError):
+        await objectives.get_for_owner(db_session, uuid.uuid4(), "no-such-id")

@@ -1,13 +1,16 @@
-"""The ingest task: runs the document ingestion pipeline for one job."""
+"""Worker tasks: the ingest pipeline and the consolidate/dream sleep-cycle runs."""
 
 import uuid
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from typing import Any
 
 from sqlalchemy import delete
 
 from odin.config import get_settings
 from odin.db import SessionLocal
 from odin.errors import NotFoundError
-from odin.models import Chunk, DocState, Document, Job, JobState
+from odin.models import Chunk, DocState, Document, Job, JobState, SleepRun, SleepState
 from odin.services import (
     blobs,
     chunking,
@@ -104,3 +107,66 @@ async def _pipeline(document_id: uuid.UUID) -> None:
 
         doc.state = DocState.indexed
         await session.commit()
+
+
+@app.task(name="consolidate")
+async def consolidate(run_id: str) -> None:
+    await _run_sleep(uuid.UUID(run_id), _consolidate_body)
+
+
+@app.task(name="dream")
+async def dream(run_id: str) -> None:
+    await _run_sleep(uuid.UUID(run_id), _dream_body)
+
+
+async def _run_sleep(
+    run_id: uuid.UUID, body: Callable[[uuid.UUID], Awaitable[dict[str, Any]]]
+) -> None:
+    owner = await _sleep_begin(run_id)
+    if owner is None:
+        return
+    try:
+        stats = await body(owner)
+        await _sleep_finish(run_id, stats)
+    except Exception as e:
+        await _sleep_fail(run_id, repr(e))
+        raise
+
+
+async def _consolidate_body(owner: uuid.UUID) -> dict[str, Any]:
+    async with SessionLocal() as session:
+        merged = await resolution.deep_consolidate(session, owner)
+        await session.commit()
+        return {"merges": merged}
+
+
+async def _dream_body(owner: uuid.UUID) -> dict[str, Any]:
+    return {"note": "REM not yet implemented"}
+
+
+async def _sleep_begin(run_id: uuid.UUID) -> uuid.UUID | None:
+    async with SessionLocal() as session, session.begin():
+        run = await session.get(SleepRun, run_id)
+        if run is None:
+            return None
+        run.state = SleepState.running
+        run.started_at = datetime.now(UTC)
+        return run.owner_user_id
+
+
+async def _sleep_finish(run_id: uuid.UUID, stats: dict[str, Any]) -> None:
+    async with SessionLocal() as session, session.begin():
+        run = await session.get(SleepRun, run_id)
+        if run is not None:
+            run.state = SleepState.succeeded
+            run.finished_at = datetime.now(UTC)
+            run.stats = stats
+
+
+async def _sleep_fail(run_id: uuid.UUID, error: str) -> None:
+    async with SessionLocal() as session, session.begin():
+        run = await session.get(SleepRun, run_id)
+        if run is not None:
+            run.state = SleepState.failed
+            run.finished_at = datetime.now(UTC)
+            run.error = error

@@ -91,6 +91,21 @@ async def list_for_owner(session: AsyncSession, owner: uuid.UUID) -> list[dict[s
     return [{"id": r[0], "text": r[1], "created_at": r[2]} for r in rows]
 
 
+async def get_for_owner(
+    session: AsyncSession, owner: uuid.UUID, objective_id: str
+) -> dict[str, Any]:
+    rows = await _cy(
+        session,
+        "MATCH (o:Objective {id:$id}) WHERE o.owner=$owner RETURN o.id, o.text, o.created_at",
+        {"id": objective_id, "owner": str(owner)},
+        columns=("id", "text", "created_at"),
+    )
+    if not rows:
+        raise NotFoundError(f"objective not found: {objective_id}")
+    r = rows[0]
+    return {"id": r[0], "text": r[1], "created_at": r[2]}
+
+
 async def drop(
     session: AsyncSession, owner: uuid.UUID, objective_id: str, *, dry_run: bool = False
 ) -> dict[str, Any]:

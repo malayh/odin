@@ -17,6 +17,7 @@ TABLES = {
     "jobs",
     "embeddings",
     "graph_mutations",
+    "sleep_runs",
 }
 
 

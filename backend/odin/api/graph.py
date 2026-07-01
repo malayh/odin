@@ -157,6 +157,14 @@ async def list_objectives(principal: PrincipalDep, session: SessionDep) -> list[
     return [ObjectiveOut(**r) for r in rows]
 
 
+@router.get("/objectives/{objective_id}", response_model=ObjectiveOut)
+async def get_objective(
+    objective_id: str, principal: PrincipalDep, session: SessionDep
+) -> ObjectiveOut:
+    row = await objectives.get_for_owner(session, principal.id, objective_id)
+    return ObjectiveOut(**row)
+
+
 @router.delete("/objectives/{objective_id}", response_model=MutationResult)
 async def drop_objective(
     objective_id: str, principal: PrincipalDep, session: SessionDep, dry_run: bool = False

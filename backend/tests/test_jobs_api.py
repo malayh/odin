@@ -52,3 +52,17 @@ async def test_unknown_job_is_404(client, admin):
     _, token = admin
     r = await client.get(f"/jobs/{uuid.uuid4()}", headers=_bearer(token))
     assert r.status_code == 404
+
+
+async def test_list_jobs_scoped_to_owner(client, admin, db_session):
+    _, token = admin
+    job_id = await _ingest(client, token, key="mine.md")
+    r = await client.get("/jobs", headers=_bearer(token))
+    assert r.status_code == 200
+    ids = {j["id"] for j in r.json()}
+    assert job_id in ids
+
+    other = await create_user(db_session, "other-list@example.com")
+    other_token, _ = await issue_token(db_session, other)
+    r2 = await client.get("/jobs", headers=_bearer(other_token))
+    assert r2.json() == []

@@ -9,7 +9,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from odin.api import admin, ask, auth, graph, ingest, jobs, search
+from odin.api import admin, ask, auth, documents, graph, ingest, jobs, search, sleep
 from odin.errors import register_error_handlers
 from odin.logging import RequestIDMiddleware, configure_logging
 from odin.worker.app import app as queue_app
@@ -35,11 +35,13 @@ def create_app() -> FastAPI:
 
     app.include_router(auth.router, prefix="/auth", tags=["auth"])
     app.include_router(ingest.router, prefix="/ingest", tags=["ingest"])
+    app.include_router(documents.router, prefix="/documents", tags=["documents"])
     app.include_router(search.router, prefix="/search", tags=["search"])
     app.include_router(ask.router, prefix="/ask", tags=["ask"])
     app.include_router(graph.router, prefix="/graph", tags=["graph"])
     app.include_router(jobs.router, prefix="/jobs", tags=["jobs"])
     app.include_router(admin.router, prefix="/admin", tags=["admin"])
+    app.include_router(sleep.router, tags=["sleep"])
     return app
 
 

@@ -20,3 +20,10 @@ class JobState(enum.Enum):
     running = "running"
     done = "done"
     failed = "failed"
+
+
+class SleepState(enum.Enum):
+    queued = "queued"
+    running = "running"
+    succeeded = "succeeded"
+    failed = "failed"
