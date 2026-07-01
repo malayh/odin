@@ -103,38 +103,21 @@ class Client:
     def entity_history(self, key: str) -> Any:
         return self._request("GET", f"/graph/entities/{key}/history")
 
-    def add_entity(self, type_: str, name: str, dry_run: bool = False) -> Any:
+    def create_entity(self, body: dict[str, Any], dry_run: bool = False) -> Any:
+        return self._request("POST", "/graph/entities", json=body, params={"dry_run": dry_run})
+
+    def update_entity(self, key: str, body: dict[str, Any], dry_run: bool = False) -> Any:
         return self._request(
-            "POST",
-            "/graph/entities",
-            json={"type": type_, "name": name},
-            params={"dry_run": dry_run},
+            "PATCH", f"/graph/entities/{key}", json=body, params={"dry_run": dry_run}
         )
 
-    def rename_entity(self, key: str, new_name: str, dry_run: bool = False) -> Any:
-        return self._request(
-            "PATCH",
-            f"/graph/entities/{key}",
-            json={"new_name": new_name},
-            params={"dry_run": dry_run},
-        )
+    def delete_entity(self, key: str, dry_run: bool = False) -> Any:
+        return self._request("DELETE", f"/graph/entities/{key}", params={"dry_run": dry_run})
 
-    def drop_entity(self, key: str, dry_run: bool = False) -> Any:
-        return self._request(
-            "DELETE", f"/graph/entities/{key}", params={"dry_run": dry_run}
-        )
+    def create_edge(self, body: dict[str, Any], dry_run: bool = False) -> Any:
+        return self._request("POST", "/graph/edges", json=body, params={"dry_run": dry_run})
 
-    def add_edge(
-        self, subject_key: str, predicate: str, object_key: str, dry_run: bool = False
-    ) -> Any:
-        return self._request(
-            "POST",
-            "/graph/edges",
-            json={"subject_key": subject_key, "predicate": predicate, "object_key": object_key},
-            params={"dry_run": dry_run},
-        )
-
-    def remove_edge(
+    def delete_edge(
         self, subject_key: str, predicate: str, object_key: str, dry_run: bool = False
     ) -> Any:
         return self._request(
@@ -148,15 +131,57 @@ class Client:
             },
         )
 
-    def add_objective(self, text: str, dry_run: bool = False) -> Any:
-        return self._request(
-            "POST", "/graph/objectives", json={"text": text}, params={"dry_run": dry_run}
-        )
+    def create_objective(self, body: dict[str, Any], dry_run: bool = False) -> Any:
+        return self._request("POST", "/graph/objectives", json=body, params={"dry_run": dry_run})
 
     def list_objectives(self) -> Any:
         return self._request("GET", "/graph/objectives")
 
-    def drop_objective(self, objective_id: str, dry_run: bool = False) -> Any:
+    def get_objective(self, objective_id: str) -> Any:
+        return self._request("GET", f"/graph/objectives/{objective_id}")
+
+    def delete_objective(self, objective_id: str, dry_run: bool = False) -> Any:
         return self._request(
             "DELETE", f"/graph/objectives/{objective_id}", params={"dry_run": dry_run}
         )
+
+    def list_documents(
+        self,
+        state: str | None = None,
+        type_: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> Any:
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if state is not None:
+            params["state"] = state
+        if type_ is not None:
+            params["doc_type"] = type_
+        return self._request("GET", "/documents", params=params)
+
+    def get_document(self, doc_id: str) -> Any:
+        return self._request("GET", f"/documents/{doc_id}")
+
+    def delete_document(self, doc_id: str, dry_run: bool = False) -> Any:
+        return self._request("DELETE", f"/documents/{doc_id}", params={"dry_run": dry_run})
+
+    def list_jobs(self, state: str | None = None, limit: int = 50, offset: int = 0) -> Any:
+        params: dict[str, Any] = {"limit": limit, "offset": offset}
+        if state is not None:
+            params["state"] = state
+        return self._request("GET", "/jobs", params=params)
+
+    def openapi(self) -> Any:
+        return self._request("GET", "/openapi.json")
+
+    def consolidate(self) -> Any:
+        return self._request("POST", "/consolidate")
+
+    def dream(self) -> Any:
+        return self._request("POST", "/dream")
+
+    def consolidate_status(self) -> Any:
+        return self._request("GET", "/consolidate/status")
+
+    def dream_status(self) -> Any:
+        return self._request("GET", "/dream/status")
