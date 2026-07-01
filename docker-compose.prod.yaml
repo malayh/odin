@@ -29,7 +29,7 @@ services:
     restart: unless-stopped
 
   migrate:
-    image: malayh/odin-backend:0.0.3
+    image: malayh/odin-backend:0.0.4
     working_dir: /app/backend
     command: ["alembic", "upgrade", "head"]
     env_file: .env
@@ -39,7 +39,7 @@ services:
     restart: "no"
 
   api:
-    image: malayh/odin-backend:0.0.3
+    image: malayh/odin-backend:0.0.4
     command: ["uvicorn", "odin.main:app", "--host", "0.0.0.0", "--port", "8000"]
     env_file: .env
     ports:
@@ -52,7 +52,7 @@ services:
     restart: unless-stopped
 
   worker:
-    image: malayh/odin-backend:0.0.3
+    image: malayh/odin-backend:0.0.4
     command: ["python", "-m", "odin.worker"]
     env_file: .env
     depends_on:
